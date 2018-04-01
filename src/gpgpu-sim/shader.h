@@ -1129,18 +1129,7 @@ public:
 
     void change2big_blksz(unsigned blksz);
     void change2small_blksz(unsigned blksz);
-    float cache_efficiency(){
-        return m_L1D->cache_efficiency();
-    }
-    void reset_cache_efficiency(){
-        m_L1D->reset_cache_stat();
-    }
-    float get_ratio_replace(){
-        return m_L1D->get_ratio_replace();
-    }
-    unsigned get_num_processed_reqs(){
-        return m_L1D->get_num_processed_reqs();
-    }
+    
     // void set_prefetch_cur_wl_idx(unsigned long long  wl_idx, warp_inst_t* inst)
     // {
     //     m_prefetcher->set_cur_wl_idx(wl_idx,inst);
@@ -1629,23 +1618,15 @@ public:
     void set_cache_blksz(unsigned blksz);
     unsigned get_new_blksz();
     void adjust_cache_blk();
-    float cache_efficiency(){
-        return m_ldst_unit->cache_efficiency();
-    }
+    
     float avg_reqs_per_inst(){
         if(m_num_reqs.size()>0)
             return accumulate(m_num_reqs.begin(),m_num_reqs.end(),0.0)/m_num_reqs.size();
         else return 1;
     }
-    void reset_cache_efficiency(){
-        m_ldst_unit->reset_cache_efficiency();
-    }
-    float get_ratio_replace(){
-        return m_ldst_unit->get_ratio_replace();
-    }
-    unsigned get_num_processed_reqs(){
-        return m_ldst_unit->get_num_processed_reqs();
-    }
+    
+    
+ 
     // modifiers
     void cycle();
     void reinit(unsigned start_thread, unsigned end_thread, bool reset_not_completed );

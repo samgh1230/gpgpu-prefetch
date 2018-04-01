@@ -118,17 +118,14 @@ public:
    unsigned get_marked_wid() {return m_warp_id;}
    void set_marked_addr(new_addr_type marked_addr) {m_marked_addr = marked_addr;}
    new_addr_type get_marked_addr(){return m_marked_addr;}
-
 private:
    // request source information
    unsigned m_request_uid;
    unsigned m_sid;
    unsigned m_tpc;
-   unsigned m_wid;
 
    unsigned m_warp_id;
    new_addr_type m_marked_addr;
-
 
    // where is this request now?
    enum mem_fetch_status m_status;
@@ -150,10 +147,14 @@ private:
    // requesting instruction (put last so mem_fetch prints nicer in gdb)
    warp_inst_t m_inst;
 
+   unsigned m_wid;
+
    static unsigned sm_next_mf_request_uid;
 
    const class memory_config *m_mem_config;
    unsigned icnt_flit_size;
+
+   bool m_prefetched;
 };
 
 #endif

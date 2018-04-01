@@ -309,6 +309,7 @@ public:
         g_visualizer_filename = strdup(buf);
 
         m_valid=true;
+
     }
 
     unsigned num_shader() const { return m_shader_config.num_shader(); }
@@ -361,6 +362,14 @@ private:
 
     friend class gpgpu_sim;
 };
+
+enum Struct_Type{
+    WORKLIST,
+    VERTEXLIST,
+    EDGELIST,
+    VISITLIST
+};
+
 
 class gpgpu_sim : public gpgpu_t {
 public:
@@ -418,8 +427,10 @@ public:
     * Returning the cluster of of the shader core, used by the functional simulation so far
     */
     simt_core_cluster * getSIMTCluster();
+
     void start_prefetch() {m_prefetch_started=true;}
     void end_prefetch() {m_prefetch_started=false;}
+
 
 private:
    // clocks
@@ -490,8 +501,17 @@ public:
    unsigned long long  gpu_sim_insn_last_update;
    unsigned gpu_sim_insn_last_update_sid;
 
+//    new_addr_type worklist_start_addr, worklist_end_addr;
+//    new_addr_type vertexlist_start_addr, vertexlist_end_addr;
+//    new_addr_type edgelist_start_addr, edgelist_end_addr;
+//    new_addr_type visitlist_start_addr, visitlist_end_addr;
+
    new_addr_type struct_bound[10];
    bool m_prefetch_started;
+
+   //update data structure bounds.
+   //type: 1-worklist, 2-vertexlist, 3-edgelist, 4-visitlist 
+   void update_struct_bound(new_addr_type start, unsigned size, unsigned type);
 
    FuncCache get_cache_config(std::string kernel_name);
    void set_cache_config(std::string kernel_name, FuncCache cacheConfig );

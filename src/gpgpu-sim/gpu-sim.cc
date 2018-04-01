@@ -594,6 +594,8 @@ gpgpu_sim::gpgpu_sim( const gpgpu_sim_config &config )
     *active_sms=0;
 
     last_liveness_message_time = 0;
+
+    m_prefetch_started=false;
 }
 
 int gpgpu_sim::shared_mem_size() const
@@ -894,7 +896,11 @@ void gpgpu_sim::gpu_print_stat()
    printf("gpu_tot_ipc = %12.4f\n", (float)(gpu_tot_sim_insn+gpu_sim_insn) / (gpu_tot_sim_cycle+gpu_sim_cycle));
    printf("gpu_tot_issued_cta = %lld\n", gpu_tot_issued_cta);
 
-
+   FILE* fout=fopen("new-50.txt","a");
+   fprintf(fout,"%lld\t%12.4f\t",gpu_tot_sim_cycle+gpu_sim_cycle,(float)(gpu_tot_sim_insn+gpu_sim_insn)/(gpu_tot_sim_cycle+gpu_sim_cycle));
+   fflush(fout);
+   fclose(fout);
+   
 
    // performance counter for stalls due to congestion.
    printf("gpu_stall_dramfull = %d\n", gpu_stall_dramfull);
@@ -910,11 +916,15 @@ void gpgpu_sim::gpu_print_stat()
 
    cache_stats core_cache_stats;
    core_cache_stats.clear();
+   unsigned tot_wl_loads=0, tot_not_finished_prefetching=0;
    for(unsigned i=0; i<m_config.num_cluster(); i++){
        m_cluster[i]->get_cache_stats(core_cache_stats);
+       tot_wl_loads += m_cluster[i]->get_cluster_stat_wl_loads();
+       tot_not_finished_prefetching += m_cluster[i]->get_cluster_stat_not_finished();
    }
    printf("\nTotal_core_cache_stats:\n");
    core_cache_stats.print_stats(stdout, "Total_core_cache_stats_breakdown");
+   printf("ratio of not finished prefetching:%f\%\n",(float)tot_not_finished_prefetching/tot_wl_loads*100);
    shader_print_scheduler_stat( stdout, false );
 
    m_shader_stats->print(stdout);
@@ -1102,6 +1112,8 @@ void shader_core_ctx::issue_block2core( kernel_info_t &kernel )
     shader_CTA_count_log(m_sid, 1);
     printf("GPGPU-Sim uArch: core:%3d, cta:%2u initialized @(%lld,%lld)\n", m_sid, free_cta_hw_id, gpu_sim_cycle, gpu_tot_sim_cycle );
 }
+
+
 /**
  * Launches a cooperative thread array (CTA). 
  *  
@@ -1214,6 +1226,7 @@ void gpgpu_sim::issue_block2core()
         }
     }
 }
+
 void gpgpu_sim::issue_block2core(new_addr_type* struct_bound)
 {
     unsigned last_issued = m_last_cluster_issue; 
@@ -1226,6 +1239,7 @@ void gpgpu_sim::issue_block2core(new_addr_type* struct_bound)
         }
     }
 }
+
 unsigned long long g_single_step=0; // set this in gdb to single step the pipeline
 
 void gpgpu_sim::cycle()
@@ -1323,8 +1337,11 @@ void gpgpu_sim::cycle()
           mcpat_cycle(m_config, getShaderCoreConfig(), m_gpgpusim_wrapper, m_power_stats, m_config.gpu_stat_sample_freq, gpu_tot_sim_cycle, gpu_sim_cycle, gpu_tot_sim_insn, gpu_sim_insn);
       }
 #endif
-
-      issue_block2core();
+      if(m_prefetch_started)
+        issue_block2core(struct_bound);
+      else 
+        issue_block2core();
+      
       
       // Depending on configuration, flush the caches once all of threads are completed.
       int all_threads_complete = 1;
