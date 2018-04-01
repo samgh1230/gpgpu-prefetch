@@ -418,13 +418,15 @@ public:
     * Returning the cluster of of the shader core, used by the functional simulation so far
     */
     simt_core_cluster * getSIMTCluster();
-
+    void start_prefetch() {m_prefetch_started=true;}
+    void end_prefetch() {m_prefetch_started=false;}
 
 private:
    // clocks
    void reinit_clock_domains(void);
    int  next_clock_domain(void);
    void issue_block2core();
+   void issue_block2core(new_addr_type* struct_bound);
    void print_dram_stats(FILE *fout) const;
    void shader_print_runtime_stat( FILE *fout );
    void shader_print_l1_miss_stat( FILE *fout ) const;
@@ -488,7 +490,8 @@ public:
    unsigned long long  gpu_sim_insn_last_update;
    unsigned gpu_sim_insn_last_update_sid;
 
-
+   new_addr_type struct_bound[10];
+   bool m_prefetch_started;
 
    FuncCache get_cache_config(std::string kernel_name);
    void set_cache_config(std::string kernel_name, FuncCache cacheConfig );

@@ -287,6 +287,7 @@ struct core_config {
     // texture and constant cache line sizes (used to determine number of memory accesses)
     unsigned gpgpu_cache_texl1_linesize;
     unsigned gpgpu_cache_constl1_linesize;
+    unsigned gpgpu_cache_data1_linesize;
 
 	unsigned gpgpu_max_insn_issue_per_warp;
 };
@@ -607,7 +608,7 @@ enum cache_operator_type {
     CACHE_WRITE_BACK,   // .wb
     CACHE_WRITE_THROUGH // .wt
 };
-
+class warp_inst_t;
 class mem_access_t {
 public:
    mem_access_t() { init(); }
@@ -636,6 +637,25 @@ public:
       m_req_size = size;
       m_write = wr;
    }
+
+   mem_access_t( mem_access_type type, 
+                 new_addr_type address, 
+                 unsigned size, 
+                 bool wr, 
+                 unsigned wid,
+                 new_addr_type marked_addr)
+   {
+      init();
+      m_type = type;
+      m_addr = address;
+      m_req_size = size;
+      m_write = wr;
+      m_wid = wid;
+      m_marked_addr = marked_addr;
+   } 
+
+   unsigned get_marked_wid() {return m_wid;}
+   new_addr_type get_marked_addr() {return m_marked_addr;}
 
    new_addr_type get_addr() const { return m_addr; }
    void set_addr(new_addr_type addr) {m_addr=addr;}
@@ -678,6 +698,8 @@ private:
    active_mask_t m_warp_mask;
    mem_access_byte_mask_t m_byte_mask;
 
+   unsigned m_wid;
+   new_addr_type m_marked_addr;
    static unsigned sm_next_access_uid;
 };
 
@@ -822,6 +844,8 @@ public:
         m_mem_accesses_created=false;
         m_cache_hit=false;
         m_is_printf=false;
+
+        m_marked_inst=false;
     }
     virtual ~warp_inst_t(){
     }
@@ -871,6 +895,9 @@ public:
             m_per_scalar_thread[n].memreqaddr[i] = addr[i];
     }
 
+    void set_marked() {m_marked_inst=true;}
+    bool is_marked() {return m_marked_inst;}
+
     struct transaction_info {
         std::bitset<4> chunks; // bitmask: 32-byte chunks accessed
         mem_access_byte_mask_t bytes;
@@ -888,6 +915,11 @@ public:
     void memory_coalescing_arch_13( bool is_write, mem_access_type access_type );
     void memory_coalescing_arch_13_atomic( bool is_write, mem_access_type access_type );
     void memory_coalescing_arch_13_reduce_and_send( bool is_write, mem_access_type access_type, const transaction_info &info, new_addr_type addr, unsigned segment_size );
+    
+    void generate_mem_accesses(std::vector<unsigned>& data_sz);
+    void memory_coalescing_arch_13( bool is_write, mem_access_type access_type, std::vector<unsigned>& data_sz );
+    void memory_coalescing_arch_13_atomic( bool is_write, mem_access_type access_type, std::vector<unsigned> &data_sz );
+    void memory_coalescing_arch_13_reduce_and_send( bool is_write, mem_access_type access_type, const transaction_info &info, new_addr_type addr, unsigned segment_size, std::vector<unsigned>& data_sz );
 
     void add_callback( unsigned lane_id, 
                        void (*function)(const class inst_t*, class ptx_thread_info*),
@@ -941,6 +973,15 @@ public:
         return m_per_scalar_thread[n].memreqaddr[0];
     }
 
+    new_addr_type get_first_valid_addr(){
+        assert( m_per_scalar_thread_valid )    ;
+        for(unsigned i=0; i<32; i++)
+            if(active(i))
+                return m_per_scalar_thread[i].memreqaddr[0];
+        printf("Error! NO valid thread\n");
+        exit(1);
+    }
+
     bool isatomic() const { return m_isatomic; }
 
     unsigned warp_size() const { return m_config->warp_size; }
@@ -980,6 +1021,8 @@ protected:
     active_mask_t m_warp_active_mask; // dynamic active mask for timing model (after predication)
     active_mask_t m_warp_issued_mask; // active mask at issue (prior to predication test) -- for instruction counting
 
+    bool m_marked_inst;
+    
     struct per_thread_info {
         per_thread_info() {
             for(unsigned i=0; i<MAX_ACCESSES_PER_INSN_PER_THREAD; i++)

@@ -1119,6 +1119,13 @@ public:
     void get_L1C_sub_stats(struct cache_sub_stats &css) const;
     void get_L1T_sub_stats(struct cache_sub_stats &css) const;
 
+    void update_prefetch_struct_bound(new_addr_type* struct_bound){
+        m_prefetcher->update_struct_bound(struct_bound);
+    }
+
+    mem_stage_stall_type process_prefetch_cache_access(cache_t* cache, new_addr_type address, std::list<cache_event>& events, mem_fetch* mf, cache_request_status status);
+    mem_stage_stall_type process_prefetch_queue( cache_t *cache);
+
 protected:
     ldst_unit( mem_fetch_interface *icnt,
                shader_core_mem_fetch_allocator *mf_allocator,
@@ -1570,6 +1577,18 @@ public:
                      shader_core_stats *stats );
 
 // used by simt_core_cluster:
+    void update_struct_bound(new_addr_type* struct_bound){
+        m_ldst_unit->update_prefetch_struct_bound(struct_bound);
+    }
+
+    void set_prefetch_started() {m_prefetch_started=true;}
+    bool is_prefetch_started() {return m_prefetch_started;}
+    void reset_prefetch_started() {m_prefetch_started=false;}
+
+    unsigned get_stat_wl_load() {return m_ldst_unit->get_prefetcher()->get_stat_wl_load();}
+    unsigned get_stat_not_finished() {return m_ldst_unit->get_prefetcher()->get_stat_not_finished();}
+
+    void read_data_from_memory(unsigned long long* data, new_addr_type addr);
     // modifiers
     void cycle();
     void reinit(unsigned start_thread, unsigned end_thread, bool reset_not_completed );
@@ -1774,6 +1793,7 @@ public:
     void print_stage(unsigned int stage, FILE *fout) const;
     unsigned long long m_last_inst_gpu_sim_cycle;
     unsigned long long m_last_inst_gpu_tot_sim_cycle;
+    bool m_prefetch_started;
 
     // general information
     unsigned m_sid; // shader id
@@ -1877,7 +1897,20 @@ public:
     void get_L1T_sub_stats(struct cache_sub_stats &css) const;
 
     void get_icnt_stats(long &n_simt_to_mem, long &n_mem_to_simt) const;
-
+    unsigned get_cluster_stat_wl_loads(){
+        unsigned tot_loads=0;
+        for ( unsigned i = 0; i < m_config->n_simt_cores_per_cluster; ++i ) {
+            tot_loads += m_core[i]->get_stat_wl_load();
+        }
+        return tot_loads;
+    }
+    unsigned get_cluster_stat_not_finished(){
+        unsigned sum=0;
+        for ( unsigned i = 0; i < m_config->n_simt_cores_per_cluster; ++i ) {
+            sum += m_core[i]->get_stat_not_finished();
+        }
+        return sum;
+    }
 private:
     unsigned m_cluster_id;
     gpgpu_sim *m_gpu;

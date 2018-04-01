@@ -419,6 +419,79 @@ extern "C" {
  *                                                                              *
  *******************************************************************************/
 
+__host__ cudaError_t CUDARTAPI cudaStartPrefetch()
+{
+	CUctx_st* context = GPGPUSim_Context();
+	gpgpu_sim* gpu = context->get_device()->get_gpgpu();
+	gpu->start_prefetch();
+	return g_last_cudaError = cudaSuccess;
+}
+
+__host__ cudaError_t CUDARTAPI cudaEndPrefetch()
+{
+	CUctx_st* context = GPGPUSim_Context();
+	gpgpu_sim* gpu = context->get_device()->get_gpgpu();
+	gpu->end_prefetch();
+	return g_last_cudaError = cudaSuccess;
+}
+
+__host__ cudaError_t CUDARTAPI cudaUpdateWlBand( unsigned wl_size)
+{
+	CUctx_st* context = GPGPUSim_Context();
+	gpgpu_sim* gpu = context->get_device()->get_gpgpu();
+	unsigned long long tmp_start = gpu->struct_bound[0];
+	unsigned long long tmp_end = gpu->struct_bound[1];
+	gpu->struct_bound[0] = gpu->struct_bound[8];
+	gpu->struct_bound[1] = gpu->struct_bound[8]+wl_size*8;
+	gpu->struct_bound[8] = tmp_start;
+	gpu->struct_bound[9] = tmp_end;
+	return g_last_cudaError = cudaSuccess;
+}
+
+__host__ cudaError_t CUDARTAPI cudaMallocMark(void **devPtr, size_t size, unsigned struct_type) 
+{
+	CUctx_st* context = GPGPUSim_Context();
+	*devPtr = context->get_device()->get_gpgpu()->gpu_malloc(size);
+
+	gpgpu_sim* gpu = context->get_device()->get_gpgpu();
+	switch(struct_type){
+		case 0: 
+			gpu->struct_bound[0] = (new_addr_type)*devPtr;
+			gpu->struct_bound[1] = (new_addr_type)(*devPtr + size);
+			printf("worklist start_addr = 0x%llx, end_addr = 0x%llx\n",*devPtr,*devPtr+size);
+			break;
+		case 1:
+			gpu->struct_bound[2] = (new_addr_type)*devPtr;
+			gpu->struct_bound[3] =  (new_addr_type)(*devPtr + size);
+			printf("vertexlist start_addr = 0x%llx, end_addr = 0x%llx\n",*devPtr,*devPtr+size);
+			break;
+		case 2:
+			gpu->struct_bound[4] = (new_addr_type)*devPtr;
+			gpu->struct_bound[5] = (new_addr_type)(*devPtr + size);
+			printf("edgelist start_addr = 0x%llx, end_addr = 0x%llx\n",*devPtr,*devPtr+size);
+			break;
+		case 3:
+			gpu->struct_bound[6] =(new_addr_type) *devPtr;
+			gpu->struct_bound[7] = (new_addr_type)(*devPtr + size);
+			printf("visitlist start_addr = 0x%llx, end_addr = 0x%llx\n",*devPtr,*devPtr+size);
+			break;
+		case 4:
+			gpu->struct_bound[8] =(new_addr_type) *devPtr;
+			gpu->struct_bound[9] = (new_addr_type)(*devPtr + size);
+			printf("worklist2 start_addr = 0x%llx, end_addr = 0x%llx\n",*devPtr,*devPtr+size);
+			break;
+	}
+
+	if(g_debug_execution >= 3)
+		printf("GPGPU-Sim PTX: cudaMallocing %zu bytes starting at 0x%llx..\n",size, (unsigned long long) *devPtr);
+	if ( *devPtr  ) {
+		return g_last_cudaError = cudaSuccess;
+	} else {
+		return g_last_cudaError = cudaErrorMemoryAllocation;
+	}
+}
+
+
 __host__ cudaError_t CUDARTAPI cudaMalloc(void **devPtr, size_t size) 
 {
 	CUctx_st* context = GPGPUSim_Context();
