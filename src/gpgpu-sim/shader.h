@@ -1127,8 +1127,8 @@ public:
     mem_stage_stall_type process_prefetch_cache_access(cache_t* cache, new_addr_type address, std::list<cache_event>& events, mem_fetch* mf, cache_request_status status);
     mem_stage_stall_type process_prefetch_queue( cache_t *cache);
 
-    void change2big_blksz(unsigned blksz);
-    void change2small_blksz(unsigned blksz);
+    void change2big_blksz(unsigned blksz){return;}
+    void change2small_blksz(unsigned blksz){return;}
     
     // void set_prefetch_cur_wl_idx(unsigned long long  wl_idx, warp_inst_t* inst)
     // {

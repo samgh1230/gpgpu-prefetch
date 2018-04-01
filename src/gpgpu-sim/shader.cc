@@ -1241,14 +1241,7 @@ void ldst_unit::get_L1T_sub_stats(struct cache_sub_stats &css) const{
         m_L1T->get_sub_stats(css);
 }
 
-void ldst_unit::change2big_blksz(unsigned blksz)
-{
-    m_L1D->change2big_blksz(blksz);
-}
-void ldst_unit::change2small_blksz(unsigned blksz)
-{
-    m_L1D->change2small_blksz(blksz);
-}
+
 
 void shader_core_ctx::warp_inst_complete(const warp_inst_t &inst)
 {
@@ -2626,14 +2619,14 @@ unsigned shader_core_ctx::get_new_blksz()
     //fclose(f);
     //if(avg_reqs_per_inst()>=4)
     // if(small_data>=0.8){
-    if(get_ratio_replace()>=0.5&&small_data>=0.5){
-        if(pct_of_32>=0.5)
-            return 32;
-        else return 64;
-    }
-    else if(get_ratio_replace()<0.5&&small_data<0.5) 
-        return 128;
-    else return current_blksz;
+    // if(get_ratio_replace()>=0.5&&small_data>=0.5){
+    //     if(pct_of_32>=0.5)
+    //         return 32;
+    //     else return 64;
+    // }
+    // else if(get_ratio_replace()<0.5&&small_data<0.5) 
+    //     return 128;
+    // else return current_blksz;
 
     /*if(avg_data_sz<48)
         return 32;
@@ -2695,7 +2688,7 @@ unsigned shader_core_ctx::get_new_blksz()
 void shader_core_ctx::adjust_cache_blk()
 {
     unsigned new_blksz = get_new_blksz();
-    reset_cache_efficiency();
+    // reset_cache_efficiency();
     set_cache_blksz(new_blksz);
     m_data_sz.clear();
     m_num_reqs.clear();
