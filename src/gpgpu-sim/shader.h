@@ -32,6 +32,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <numeric>
 #include <assert.h>
 #include <map>
 #include <set>
@@ -1126,6 +1127,27 @@ public:
     mem_stage_stall_type process_prefetch_cache_access(cache_t* cache, new_addr_type address, std::list<cache_event>& events, mem_fetch* mf, cache_request_status status);
     mem_stage_stall_type process_prefetch_queue( cache_t *cache);
 
+    void change2big_blksz(unsigned blksz);
+    void change2small_blksz(unsigned blksz);
+    float cache_efficiency(){
+        return m_L1D->cache_efficiency();
+    }
+    void reset_cache_efficiency(){
+        m_L1D->reset_cache_stat();
+    }
+    float get_ratio_replace(){
+        return m_L1D->get_ratio_replace();
+    }
+    unsigned get_num_processed_reqs(){
+        return m_L1D->get_num_processed_reqs();
+    }
+    // void set_prefetch_cur_wl_idx(unsigned long long  wl_idx, warp_inst_t* inst)
+    // {
+    //     m_prefetcher->set_cur_wl_idx(wl_idx,inst);
+    // }
+
+    Prefetch_Unit* get_prefetcher() {return m_prefetcher;}
+    class shader_core_ctx *m_core;
 protected:
     ldst_unit( mem_fetch_interface *icnt,
                shader_core_mem_fetch_allocator *mf_allocator,
@@ -1166,9 +1188,11 @@ protected:
    const memory_config *m_memory_config;
    class mem_fetch_interface *m_icnt;
    shader_core_mem_fetch_allocator *m_mf_allocator;
-   class shader_core_ctx *m_core;
+   //class shader_core_ctx *m_core;
    unsigned m_sid;
    unsigned m_tpc;
+
+//    unsigned current_blksz;
 
    tex_cache *m_L1T; // texture cache
    read_only_cache *m_L1C; // constant cache
@@ -1177,6 +1201,8 @@ protected:
    std::list<mem_fetch*> m_response_fifo;
    opndcoll_rfu_t *m_operand_collector;
    Scoreboard *m_scoreboard;
+
+   Prefetch_Unit *m_prefetcher;
 
    mem_fetch *m_next_global;
    warp_inst_t m_next_wb;
@@ -1213,7 +1239,10 @@ const char* const pipeline_stage_name_decode[] = {
     "EX_WB",
     "N_PIPELINE_STAGES" 
 };
-
+enum blk_metrics{
+    MEM_ACC,
+    DATASZ_DISTRO
+};
 struct shader_core_config : public core_config
 {
     shader_core_config(){
@@ -1228,20 +1257,20 @@ struct shader_core_config : public core_config
         if(ntok != 2) {
            printf("GPGPU-Sim uArch: error while parsing configuration string gpgpu_shader_core_pipeline_opt\n");
            abort();
-	}
+	    }
 
-	char* toks = new char[100];
-	char* tokd = toks;
-	strcpy(toks,pipeline_widths_string);
+        char* toks = new char[100];
+        char* tokd = toks;
+        strcpy(toks,pipeline_widths_string);
 
-	toks = strtok(toks,",");
-	for (unsigned i = 0; i < N_PIPELINE_STAGES; i++) { 
-	    assert(toks);
-	    ntok = sscanf(toks,"%d", &pipe_widths[i]);
-	    assert(ntok == 1); 
-	    toks = strtok(NULL,",");
-	}
-	delete[] tokd;
+        toks = strtok(toks,",");
+        for (unsigned i = 0; i < N_PIPELINE_STAGES; i++) { 
+            assert(toks);
+            ntok = sscanf(toks,"%d", &pipe_widths[i]);
+            assert(ntok == 1); 
+            toks = strtok(NULL,",");
+        }
+        delete[] tokd;
 
         if (n_thread_per_shader > MAX_THREAD_PER_SM) {
            printf("GPGPU-Sim uArch: Error ** increase MAX_THREAD_PER_SM in abstract_hardware_model.h from %u to %u\n", 
@@ -1258,6 +1287,7 @@ struct shader_core_config : public core_config
         m_L1D_config.init(m_L1D_config.m_config_string,FuncCachePreferNone);
         gpgpu_cache_texl1_linesize = m_L1T_config.get_line_sz();
         gpgpu_cache_constl1_linesize = m_L1C_config.get_line_sz();
+        gpgpu_cache_data1_linesize = m_L1D_config.get_line_sz();
         m_valid = true;
     }
     void reg_options(class OptionParser * opp );
@@ -1332,7 +1362,7 @@ struct shader_core_config : public core_config
     unsigned ldst_unit_response_queue_size;
 
     int simt_core_sim_order; 
-    
+
     unsigned mem2device(unsigned memid) const { return memid + n_simt_clusters; }
 };
 
@@ -1565,6 +1595,9 @@ private:
     const memory_config *m_memory_config;
 };
 
+#define SAMPLE_INTERVAL 100*100
+#define SAMPLE_REQ  1000
+#define SAMPLE_INSTRUCTION 10000
 class shader_core_ctx : public core_t {
 public:
     // creator:
@@ -1577,6 +1610,7 @@ public:
                      shader_core_stats *stats );
 
 // used by simt_core_cluster:
+
     void update_struct_bound(new_addr_type* struct_bound){
         m_ldst_unit->update_prefetch_struct_bound(struct_bound);
     }
@@ -1589,10 +1623,34 @@ public:
     unsigned get_stat_not_finished() {return m_ldst_unit->get_prefetcher()->get_stat_not_finished();}
 
     void read_data_from_memory(unsigned long long* data, new_addr_type addr);
+
+    void change2small_blksz(unsigned blksz);
+    void change2big_blksz(unsigned blksz);
+    void set_cache_blksz(unsigned blksz);
+    unsigned get_new_blksz();
+    void adjust_cache_blk();
+    float cache_efficiency(){
+        return m_ldst_unit->cache_efficiency();
+    }
+    float avg_reqs_per_inst(){
+        if(m_num_reqs.size()>0)
+            return accumulate(m_num_reqs.begin(),m_num_reqs.end(),0.0)/m_num_reqs.size();
+        else return 1;
+    }
+    void reset_cache_efficiency(){
+        m_ldst_unit->reset_cache_efficiency();
+    }
+    float get_ratio_replace(){
+        return m_ldst_unit->get_ratio_replace();
+    }
+    unsigned get_num_processed_reqs(){
+        return m_ldst_unit->get_num_processed_reqs();
+    }
     // modifiers
     void cycle();
     void reinit(unsigned start_thread, unsigned end_thread, bool reset_not_completed );
     void issue_block2core( class kernel_info_t &kernel );
+    void issue_block2core( class kernel_info_t &kernel, new_addr_type* struct_bound);
     void cache_flush();
     void accept_fetch_response( mem_fetch *mf );
     void accept_ldst_unit_response( class mem_fetch * mf );
@@ -1605,7 +1663,7 @@ public:
         printf("GPGPU-Sim uArch: Shader %d bind to kernel %u \'%s\'\n", m_sid, m_kernel->get_uid(),
                  m_kernel->name().c_str() );
     }
-   
+    const shader_core_config *m_config;
     // accessors
     bool fetch_unit_response_buffer_full() const;
     bool ldst_unit_response_buffer_full() const;
@@ -1793,12 +1851,22 @@ public:
     void print_stage(unsigned int stage, FILE *fout) const;
     unsigned long long m_last_inst_gpu_sim_cycle;
     unsigned long long m_last_inst_gpu_tot_sim_cycle;
+
+    unsigned m_sample_cycles;
+    unsigned m_sample_reqs;
+    unsigned m_sample_insts;
+    
+    std::vector<unsigned> m_data_sz;
+    unsigned current_blksz;
+
+    std::vector<float> m_num_reqs;
+
     bool m_prefetch_started;
 
     // general information
     unsigned m_sid; // shader id
     unsigned m_tpc; // texture processor cluster id (aka, node id when using interconnect concentration)
-    const shader_core_config *m_config;
+    //const shader_core_config *m_config;
     const memory_config *m_memory_config;
     class simt_core_cluster *m_cluster;
 
@@ -1867,6 +1935,7 @@ public:
 
     void reinit();
     unsigned issue_block2core();
+    unsigned issue_block2core(new_addr_type* struct_bound);
     void cache_flush();
     bool icnt_injection_buffer_full(unsigned size, bool write);
     void icnt_inject_request_packet(class mem_fetch *mf);
@@ -1897,6 +1966,7 @@ public:
     void get_L1T_sub_stats(struct cache_sub_stats &css) const;
 
     void get_icnt_stats(long &n_simt_to_mem, long &n_mem_to_simt) const;
+
     unsigned get_cluster_stat_wl_loads(){
         unsigned tot_loads=0;
         for ( unsigned i = 0; i < m_config->n_simt_cores_per_cluster; ++i ) {

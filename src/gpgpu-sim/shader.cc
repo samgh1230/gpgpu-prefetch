@@ -27,6 +27,8 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <float.h>
+#include <vector>
+#include <numeric>
 #include "shader.h"
 #include "gpu-sim.h"
 #include "addrdec.h"
@@ -77,11 +79,20 @@ shader_core_ctx::shader_core_ctx( class gpgpu_sim *gpu,
      m_dynamic_warp_id(0)
 {
     m_prefetch_started=false;
+
     m_cluster = cluster;
     m_config = config;
     m_memory_config = mem_config;
     m_stats = stats;
     unsigned warp_size=config->warp_size;
+
+
+    m_data_sz.clear();
+    m_num_reqs.clear();
+    current_blksz=m_config->gpgpu_cache_data1_linesize;
+    m_sample_cycles = 0;
+    m_sample_insts = 0;
+    m_sample_reqs = 0;
     
     m_sid = shader_id;
     m_tpc = tpc_id;
@@ -673,25 +684,37 @@ void shader_core_ctx::fetch()
 void shader_core_ctx::func_exec_inst( warp_inst_t &inst )
 {
     execute_warp_inst_t(inst);
-    if( inst.is_load() || inst.is_store() ){
-        if(inst.is_marked())
+
+    if( inst.is_load() || inst.is_store() )
+        if(inst.space.get_type()==global_space||inst.space.get_type()==local_space||inst.space.get_type()==param_space_local)
         {
-            new_addr_type wl_idx_addr = inst.get_first_valid_addr();
-            for(unsigned i=0; i<32; i++)
-                if(inst.active(i))
-                    assert(wl_idx_addr==inst.get_addr(i));
-    
-            printf("core %u get current worklist addr: 0x%x\n", m_sid, wl_idx_addr);
-            m_ldst_unit->get_prefetcher()->set_cur_wl_idx(wl_idx_addr,inst.warp_id(),wl_idx_addr);
+            inst.generate_mem_accesses(m_data_sz);
+            m_num_reqs.push_back(inst.accessq_count());
+            m_sample_insts++;
+            m_sample_reqs += inst.accessq_count();
+
+            if(inst.is_marked())
+            {
+                new_addr_type wl_idx_addr = inst.get_first_valid_addr();
+                for(unsigned i=0; i<32; i++)
+                    if(inst.active(i))
+                        assert(wl_idx_addr==inst.get_addr(i));
+                // unsigned long long data;
+                // get_gpu()->get_global_memory()->read(addr,8,&data);
+
+                printf("core %u get current worklist addr: 0x%x\n", m_sid, wl_idx_addr);
+                m_ldst_unit->get_prefetcher()->set_cur_wl_idx(wl_idx_addr,inst.warp_id(),wl_idx_addr);
+            }
         }
-        inst.generate_mem_accesses();
-    }
-        
+        else 
+            inst.generate_mem_accesses();
 }
+
 void shader_core_ctx::read_data_from_memory(unsigned long long* data, new_addr_type addr)
 {
     get_gpu()->get_global_memory()->read(addr,8,data);
 }
+
 void shader_core_ctx::issue_warp( register_set& pipe_reg_set, const warp_inst_t* next_inst, const active_mask_t &active_mask, unsigned warp_id )
 {
     warp_inst_t** pipe_reg = pipe_reg_set.get_free();
@@ -1218,6 +1241,15 @@ void ldst_unit::get_L1T_sub_stats(struct cache_sub_stats &css) const{
         m_L1T->get_sub_stats(css);
 }
 
+void ldst_unit::change2big_blksz(unsigned blksz)
+{
+    m_L1D->change2big_blksz(blksz);
+}
+void ldst_unit::change2small_blksz(unsigned blksz)
+{
+    m_L1D->change2small_blksz(blksz);
+}
+
 void shader_core_ctx::warp_inst_complete(const warp_inst_t &inst)
 {
    #if 0
@@ -1340,6 +1372,8 @@ ldst_unit::process_cache_access( cache_t* cache,
         result = BK_CONF;
     return result;
 }
+
+
 mem_stage_stall_type
 ldst_unit::process_prefetch_cache_access( cache_t* cache,
                                  new_addr_type address,
@@ -1392,6 +1426,7 @@ mem_stage_stall_type ldst_unit::process_prefetch_queue( cache_t *cache )
     enum cache_request_status status = cache->access(mf->get_addr(),mf,gpu_sim_cycle+gpu_tot_sim_cycle,events);
     return process_prefetch_cache_access( cache, mf->get_addr(), events, mf, status );
 }
+
 mem_stage_stall_type ldst_unit::process_memory_access_queue( cache_t *cache, warp_inst_t &inst )
 {
     mem_stage_stall_type result = NO_RC_FAIL;
@@ -1404,6 +1439,11 @@ mem_stage_stall_type ldst_unit::process_memory_access_queue( cache_t *cache, war
     //const mem_access_t &access = inst.accessq_back();
     mem_fetch *mf = m_mf_allocator->alloc(inst,inst.accessq_back());
     std::list<cache_event> events;
+    
+    if(inst.space.get_type()==global_space && mf->get_data_size()>m_core->m_config->gpgpu_cache_data1_linesize){
+        printf("mem_fetch data size=%d,cache line size=%d\n",mf->get_data_size(),m_core->m_config->gpgpu_cache_data1_linesize);
+        exit(1);
+    }
     enum cache_request_status status = cache->access(mf->get_addr(),mf,gpu_sim_cycle+gpu_tot_sim_cycle,events);
     if(status!=RESERVATION_FAIL){
         if(inst.is_load() && m_core->is_prefetch_started()&&inst.is_marked())
@@ -1448,10 +1488,10 @@ bool ldst_unit::memory_cycle( warp_inst_t &inst, mem_stage_stall_type &stall_rea
    if( inst.empty() || 
        ((inst.space.get_type() != global_space) &&
         (inst.space.get_type() != local_space) &&
-        (inst.space.get_type() != param_space_local)) ){
+        (inst.space.get_type() != param_space_local)) ) {
             process_prefetch_queue(m_L1D);
             return true;
-        } 
+        }
     //    return true;
    if( inst.active_count() == 0 ) 
        return true;
@@ -1721,7 +1761,6 @@ ldst_unit::ldst_unit( mem_fetch_interface *icnt,
           stats, 
           sid,
           tpc );
-    m_prefetcher = new Prefetch_Unit();
 }
 
 void ldst_unit:: issue( register_set &reg_set )
@@ -1888,7 +1927,7 @@ void ldst_unit::cycle()
                m_prefetcher->prefetched_data(data,mf->get_addr(),mf->get_marked_wid(),mf->get_marked_addr());
                //delete mf;//是否需要删除
            }
-       } else if(mf->istexture()) {
+       } else if (mf->istexture()) {
            if (m_L1T->fill_port_free()) {
                m_L1T->fill(mf,gpu_sim_cycle+gpu_tot_sim_cycle);
                m_response_fifo.pop_front(); 
@@ -2112,6 +2151,7 @@ void gpgpu_sim::shader_print_cache_stats( FILE *fout ) const{
     }
 
     // L1D
+    FILE* f=fopen("new-50.txt","a");
     if(!m_shader_config->m_L1D_config.disabled()){
         total_css.clear();
         css.clear();
@@ -2128,11 +2168,15 @@ void gpgpu_sim::shader_print_cache_stats( FILE *fout ) const{
         fprintf(fout, "\tL1D_total_cache_misses = %u\n", total_css.misses);
         if(total_css.accesses > 0){
             fprintf(fout, "\tL1D_total_cache_miss_rate = %.4lf\n", (double)total_css.misses / (double)total_css.accesses);
+            fprintf(f,"%.4f\n",(double)total_css.misses/(double)total_css.accesses);
         }
+        else fprintf(f,"0.0\n");
         fprintf(fout, "\tL1D_total_cache_pending_hits = %u\n", total_css.pending_hits);
         fprintf(fout, "\tL1D_total_cache_reservation_fails = %u\n", total_css.res_fails);
         total_css.print_port_stats(fout, "\tL1D_cache"); 
     }
+    fflush(f);
+    fclose(f);
 
     // L1C
     if(!m_shader_config->m_L1C_config.disabled()){
@@ -2525,8 +2569,151 @@ unsigned int shader_core_config::max_cta( const kernel_info_t &k ) const
     return result;
 }
 
+void shader_core_ctx::change2small_blksz(unsigned blksz)
+{
+    // FILE* f = fopen("small-only-ex-32.txt","a");
+    // fprintf(f,"%lld\tchange to %u\n",gpu_tot_sim_cycle+gpu_sim_cycle,blksz);
+    // fflush(f);
+    // fclose(f);
+    m_ldst_unit->change2small_blksz(blksz);
+    current_blksz = blksz;
+}
+void shader_core_ctx::change2big_blksz(unsigned blksz)
+{
+    cache_flush();
+    current_blksz = blksz;
+    m_ldst_unit->change2big_blksz(blksz);
+}
+void shader_core_ctx::set_cache_blksz(unsigned blksz)
+{
+    if(blksz<current_blksz)
+        change2small_blksz(blksz);
+    if(blksz>current_blksz)
+        change2big_blksz(blksz);
+}
+unsigned shader_core_ctx::get_new_blksz()
+{
+    std::vector<unsigned> num_ref;
+    num_ref.resize(3,0);
+    for(int i=0;i<m_data_sz.size();i++)
+    {
+        switch(m_data_sz[i])
+        {
+            case 32:num_ref[0]+=1;break;
+            case 64:num_ref[1]+=1;break;
+            case 128:num_ref[2]+=1;break;
+            default:
+            printf("error: wrong data size.\n");
+            exit(1);
+        }
+    
+    }
+
+    float avg_data_sz = current_blksz;
+    if(m_data_sz.size())
+    avg_data_sz = accumulate(m_data_sz.begin(),m_data_sz.end(),0.0)/m_data_sz.size();
+    /*for(int i=0;i<3;i++)
+    {
+      num_ref[i] /= m_data_sz.size();
+    }*/
+    
+
+    float small_data = (float)(num_ref[0]+num_ref[1])/m_data_sz.size();
+    float pct_of_32 = (float)num_ref[0]/(num_ref[0]+num_ref[1]);
+    //FILE* f = fopen("test-50.txt","a");
+    //fprintf(f,"cache efficiency=%f, avg_reqs_per_inst=%f, ratioofReplace=%f, small_data=%f\n",cache_efficiency(),avg_reqs_per_inst(),get_ratio_replace(),small_data);
+   // fflush(f);
+    //fclose(f);
+    //if(avg_reqs_per_inst()>=4)
+    // if(small_data>=0.8){
+    if(get_ratio_replace()>=0.5&&small_data>=0.5){
+        if(pct_of_32>=0.5)
+            return 32;
+        else return 64;
+    }
+    else if(get_ratio_replace()<0.5&&small_data<0.5) 
+        return 128;
+    else return current_blksz;
+
+    /*if(avg_data_sz<48)
+        return 32;
+    else if(avg_data_sz>=48&&avg_data_sz<64&&num_ref[0]>=0.4)
+        return 32;
+    else if(avg_data_sz>=48&&avg_data_sz<64&&num_ref[0]<0.4)
+        return 64;
+    else if(avg_data_sz>=64&&avg_data_sz<80)
+        return 64;
+    else if(avg_data_sz>=80&&avg_data_sz<96&&num_ref[1]>=0.4)
+        return 64;
+    else if(avg_data_sz>=80&&avg_data_sz<96&&num_ref[1]<0.4)
+        return 128;
+    else return 128;*/
+
+
+    /*if(avg_data_sz<128)
+        return 32;
+    else if(avg_data_sz>64&&avg_data_sz<64)
+        return 64;
+    else return 128;*/
+
+
+    /*float avg_reqs = 32;
+    if(m_num_reqs.size())
+        avg_reqs = accumulate(m_num_reqs.begin(),m_num_reqs.end(),0.0)/m_num_reqs.size();
+    if(avg_reqs<=8)
+        return 32;
+    else if(avg_reqs>8 && avg_reqs<=16)
+        return 64;
+    else if(avg_reqs>16)
+    {
+        return 128;
+    }*/
+    
+    /*float avg_reqs = 1;
+    if(m_num_reqs.size())
+        avg_reqs = accumulate(m_num_reqs.begin(),m_num_reqs.end(),0.0)/m_num_reqs.size();
+    if(avg_reqs>=4)
+        return 32;
+    else if(avg_reqs>2 && avg_reqs<4)
+        return 64;
+    else{
+        assert(avg_reqs>0);
+        return 128;
+    }*/
+    
+    //how to define the threshold
+    //128x+64y+32z=cache volume
+    /*if(128*num_ref[2]>64*num_ref[1]+32*num_ref[0])
+        return 128;
+    if(64*num_ref[1]>128*num_ref[2]+32*num_ref[0])
+        return 64;
+    if(32*num_ref[0]>128*num_ref[2]+64*num_ref[1])
+        return 32;
+    return current_blksz;*/
+
+}
+void shader_core_ctx::adjust_cache_blk()
+{
+    unsigned new_blksz = get_new_blksz();
+    reset_cache_efficiency();
+    set_cache_blksz(new_blksz);
+    m_data_sz.clear();
+    m_num_reqs.clear();
+}
+
 void shader_core_ctx::cycle()
 {
+    m_sample_cycles++;
+    // if(m_sample_cycles==SAMPLE_INTERVAL)
+    // if(get_num_processed_reqs()>=SAMPLE_REQ)
+    // {
+    //     adjust_cache_blk();
+    //     //m_sample_cycles=0;
+    //     m_sample_reqs=0;
+    // }
+
+    /*if(cache_efficiency()<=0.5||avg_reqs_per_inst()>=4)
+        change2small_blksz(32);*/
 	m_stats->shader_cycles[m_sid]++;
     writeback();
     execute();
@@ -3335,6 +3522,7 @@ unsigned simt_core_cluster::issue_block2core()
     }
     return num_blocks_issued;
 }
+
 unsigned simt_core_cluster::issue_block2core(new_addr_type* struct_bound)
 {
     unsigned num_blocks_issued=0;
