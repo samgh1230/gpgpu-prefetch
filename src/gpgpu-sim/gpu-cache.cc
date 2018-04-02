@@ -246,8 +246,9 @@ enum cache_request_status tag_array::access( new_addr_type addr, unsigned time, 
         if ( m_config.m_alloc_policy == ON_MISS ) {
             if( m_lines[idx].m_status == MODIFIED ) {
                 wb = true;
-                evicted = m_lines[idx];
+                // evicted = m_lines[idx];//del by gh
             }
+            evicted = m_lines[idx];//added by gh
             m_lines[idx].allocate( m_config.tag(addr), m_config.block_addr(addr), time );
         }
         break;
@@ -786,30 +787,21 @@ void baseline_cache::send_read_request(new_addr_type addr, new_addr_type block_a
 
     bool mshr_hit = m_mshrs.probe(block_addr);
     bool mshr_avail = !m_mshrs.full(block_addr);
-    //added by gh
-    cache_request_status cache_status;
+ 
 
     if ( mshr_hit && mshr_avail ) {
     	if(read_only)
-    		cache_status = m_tag_array->access(block_addr,time,cache_index);//added by gh
+    		m_tag_array->access(block_addr,time,cache_index);
     	else
-    		cache_status = m_tag_array->access(block_addr,time,cache_index,wb,evicted);//added by gh
-        //added by gh
-        if(cache_status==MISS&&evicted.m_prefetched&&!evicted.m_accessed){
-            m_stats.inc_num_unused_prefetched();
-        }
+    		m_tag_array->access(block_addr,time,cache_index,wb,evicted);
+        
         m_mshrs.add(block_addr,mf);
         do_miss = true;
     } else if ( !mshr_hit && mshr_avail && (m_miss_queue.size() < m_config.m_miss_queue_size) ) {
     	if(read_only)
-    		cache_status = m_tag_array->access(block_addr,time,cache_index);//added by gh
+    		m_tag_array->access(block_addr,time,cache_index);
     	else
-    		cache_status = m_tag_array->access(block_addr,time,cache_index,wb,evicted);//added by gh
-        //added by gh
-        if(cache_status==MISS&&evicted.m_prefetched&&!evicted.m_accessed){
-            m_stats.inc_num_unused_prefetched();
-        }
-
+    		m_tag_array->access(block_addr,time,cache_index,wb,evicted);
         m_mshrs.add(block_addr,mf);
         m_extra_mf_fields[mf] = extra_mf_fields(block_addr,cache_index, mf->get_data_size());
         mf->set_data_size( m_config.get_line_sz() );
@@ -1020,8 +1012,11 @@ data_cache::rd_miss_base( new_addr_type addr,
         if(wb && (m_config.m_write_policy != WRITE_THROUGH) ){ 
             mem_fetch *wb = m_memfetch_creator->alloc(evicted.m_block_addr,
                 m_wrbk_type,m_config.get_line_sz(),true);
-        send_write_request(wb, WRITE_BACK_REQUEST_SENT, time, events);
-    }
+            send_write_request(wb, WRITE_BACK_REQUEST_SENT, time, events);
+        }
+        //added by gh
+        if(evicted.m_prefetched&&!evicted.m_accessed)
+            m_stats.inc_num_unused_prefetched();
         return MISS;
     }
     return RESERVATION_FAIL;
