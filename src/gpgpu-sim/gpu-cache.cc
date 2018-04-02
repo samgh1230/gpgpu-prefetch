@@ -706,6 +706,9 @@ void baseline_cache::fill(mem_fetch *mf, unsigned time){
     else if ( m_config.m_alloc_policy == ON_FILL )
         m_tag_array->fill(e->second.m_block_addr,time);
     else abort();
+    // if(mf->is_prefetched()){
+    //     m_tag_array->set_prefetch_flag();
+    // }
     bool has_atomic = false;
     m_mshrs.mark_ready(e->second.m_block_addr, has_atomic);
     if (has_atomic) {

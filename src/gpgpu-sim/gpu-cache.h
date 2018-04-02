@@ -69,6 +69,9 @@ struct cache_block_t {
         m_fill_time=0;
         m_last_access_time=0;
         m_status=INVALID;
+
+        m_prefetched=false;
+        m_accessed=false;
     }
     void allocate( new_addr_type tag, new_addr_type block_addr, unsigned time )
     {
@@ -92,6 +95,10 @@ struct cache_block_t {
     unsigned         m_last_access_time;
     unsigned         m_fill_time;
     cache_block_state    m_status;
+
+    //bits for prefetching
+    bool    m_prefetched;
+    bool    m_accessed;
 };
 
 enum replacement_policy_t {
