@@ -2167,6 +2167,8 @@ void gpgpu_sim::shader_print_cache_stats( FILE *fout ) const{
         fprintf(fout, "\tL1D_total_cache_pending_hits = %u\n", total_css.pending_hits);
         fprintf(fout, "\tL1D_total_cache_reservation_fails = %u\n", total_css.res_fails);
         total_css.print_port_stats(fout, "\tL1D_cache"); 
+        fprintf(f,"num of prefetched data:%u\n",total_css.num_prefetched);
+        fprintf(f,"num of unused prefetched data:%u\n",total_css.num_unused_prefetched);
     }
     fflush(f);
     fclose(f);

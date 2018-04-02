@@ -9,7 +9,8 @@
 			"*.cu": "cpp",
 			"*.h": "cpp",
 			"ios": "cpp",
-			"xutility": "cpp"
+			"xutility": "cpp",
+			"xmemory0": "cpp"
 		}
 	}
 }

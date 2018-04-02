@@ -48,7 +48,9 @@ enum cache_request_status {
     HIT = 0,
     HIT_RESERVED,
     MISS,
-    RESERVATION_FAIL, 
+    RESERVATION_FAIL,
+    PREFETCH_HIT, //added by gh
+    PREFETCH_MISS,
     NUM_CACHE_REQUEST_STATUS
 };
 
@@ -69,7 +71,7 @@ struct cache_block_t {
         m_fill_time=0;
         m_last_access_time=0;
         m_status=INVALID;
-
+        //added by gh
         m_prefetched=false;
         m_accessed=false;
     }
@@ -81,6 +83,10 @@ struct cache_block_t {
         m_last_access_time=time;
         m_fill_time=0;
         m_status=RESERVED;
+
+        //added by gh
+        m_prefetched=false;
+        m_accessed=false;
     }
     void fill( unsigned time )
     {
@@ -96,7 +102,7 @@ struct cache_block_t {
     unsigned         m_fill_time;
     cache_block_state    m_status;
 
-    //bits for prefetching
+    //bits for prefetching,added by gh
     bool    m_prefetched;
     bool    m_accessed;
 };
@@ -457,6 +463,11 @@ struct cache_sub_stats{
     unsigned misses;
     unsigned pending_hits;
     unsigned res_fails;
+    //added by gh
+    unsigned prefetch_access;
+    unsigned prefetch_misses;
+    unsigned num_prefetched;
+    unsigned num_unused_prefetched;
 
     unsigned long long port_available_cycles; 
     unsigned long long data_port_busy_cycles; 
@@ -473,6 +484,11 @@ struct cache_sub_stats{
         port_available_cycles = 0; 
         data_port_busy_cycles = 0; 
         fill_port_busy_cycles = 0; 
+        //added by gh
+        prefetch_accesses = 0;
+        prefetch_misses = 0;
+        num_prefetched = 0;
+        num_unused_prefetched=0;
     }
     cache_sub_stats &operator+=(const cache_sub_stats &css){
         ///
@@ -482,6 +498,12 @@ struct cache_sub_stats{
         misses += css.misses;
         pending_hits += css.pending_hits;
         res_fails += css.res_fails;
+        //added by gh
+        prefetch_access += css.prefetch_access;
+        prefetch_misses += css.prefetch_misses;
+        num_prefetched += css.num_prefetched;
+        num_unused_prefetched += css.num_unused_prefetched;
+
         port_available_cycles += css.port_available_cycles; 
         data_port_busy_cycles += css.data_port_busy_cycles; 
         fill_port_busy_cycles += css.fill_port_busy_cycles; 
@@ -497,6 +519,12 @@ struct cache_sub_stats{
         ret.misses = misses + cs.misses;
         ret.pending_hits = pending_hits + cs.pending_hits;
         ret.res_fails = res_fails + cs.res_fails;
+        //added by gh
+        ret.prefetch_access = prefetch_access + cs.prefetch_access;
+        ret.prefetch_misses = prefetch_misses + cs.prefetch_misses;
+        ret.num_prefetched = num_prefetched + cs.num_prefetched;
+        ret.num_unused_prefetched = num_unused_prefetched + cs.num_unused_prefetched;
+
         ret.port_available_cycles = port_available_cycles + cs.port_available_cycles; 
         ret.data_port_busy_cycles = data_port_busy_cycles + cs.data_port_busy_cycles; 
         ret.fill_port_busy_cycles = fill_port_busy_cycles + cs.fill_port_busy_cycles; 
@@ -528,10 +556,20 @@ public:
     void get_sub_stats(struct cache_sub_stats &css) const;
 
     void sample_cache_port_utility(bool data_port_busy, bool fill_port_busy); 
+    //added by gh
+    void inc_num_prefetched(){
+        m_num_prefetched++;
+    }
+    void inc_num_unused_prefetched(){
+        m_num_unused_prefetched++;
+    }
 private:
     bool check_valid(int type, int status) const;
 
     std::vector< std::vector<unsigned> > m_stats;
+    //added by gh
+    unsigned m_num_prefetched;
+    unsigned m_num_unused_prefetched;
 
     unsigned long long m_cache_port_available_cycles; 
     unsigned long long m_cache_data_port_busy_cycles; 

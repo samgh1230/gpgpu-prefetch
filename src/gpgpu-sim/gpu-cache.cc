@@ -38,7 +38,9 @@ const char * cache_request_status_str(enum cache_request_status status)
       "HIT",
       "HIT_RESERVED",
       "MISS",
-      "RESERVATION_FAIL"
+      "RESERVATION_FAIL",
+      "PREFETCH_HIT",//added by gh
+      "PREFETCH_MISS"
    }; 
 
    assert(sizeof(static_cache_request_status_str) / sizeof(const char*) == NUM_CACHE_REQUEST_STATUS); 
@@ -260,8 +262,8 @@ enum cache_request_status tag_array::access( new_addr_type addr, unsigned time, 
     }
     return status;
 }
-
-void tag_array::fill( new_addr_type addr, unsigned time )
+//added by gh
+void tag_array::fill( new_addr_type addr, unsigned time, bool is_prefetched)
 {
     assert( m_config.m_alloc_policy == ON_FILL );
     unsigned idx;
@@ -269,12 +271,14 @@ void tag_array::fill( new_addr_type addr, unsigned time )
     assert(status==MISS); // MSHR should have prevented redundant memory request
     m_lines[idx].allocate( m_config.tag(addr), m_config.block_addr(addr), time );
     m_lines[idx].fill(time);
+    m_lines[idx].m_prefetched=is_prefetched;
 }
 
-void tag_array::fill( unsigned index, unsigned time ) 
+void tag_array::fill( unsigned index, unsigned time , bool is_prefetched) 
 {
     assert( m_config.m_alloc_policy == ON_MISS );
     m_lines[index].fill(time);
+    m_lines[index].m_prefetched=is_prefetched;
 }
 
 void tag_array::flush() 
@@ -423,6 +427,9 @@ cache_stats::cache_stats(){
     m_cache_port_available_cycles = 0; 
     m_cache_data_port_busy_cycles = 0; 
     m_cache_fill_port_busy_cycles = 0; 
+    //added by gh
+    m_num_prefetched = 0;
+    m_num_unused_prefetched = 0;
 }
 
 void cache_stats::clear(){
@@ -581,12 +588,20 @@ void cache_stats::get_sub_stats(struct cache_sub_stats &css) const{
 
             if(status == RESERVATION_FAIL)
                 t_css.res_fails += m_stats[type][status];
+            //added by gh
+            if(status == PREFETCH_HIT || status == PREFETCH_MISS)
+                t_css.prefetch_access += m_stats[type][status];
+            if(status == PREFETCH_MISS)
+                t_css.prefetch_misses += m_stats[type][status];
         }
     }
 
     t_css.port_available_cycles = m_cache_port_available_cycles; 
     t_css.data_port_busy_cycles = m_cache_data_port_busy_cycles; 
     t_css.fill_port_busy_cycles = m_cache_fill_port_busy_cycles; 
+
+    t_css.num_prefetched = m_num_prefetched;
+    t_css.num_unused_prefetched = m_num_unused_prefetched;
 
     css = t_css;
 }
@@ -701,14 +716,15 @@ void baseline_cache::fill(mem_fetch *mf, unsigned time){
     assert( e != m_extra_mf_fields.end() );
     assert( e->second.m_valid );
     mf->set_data_size( e->second.m_data_size );
+    //added by gh
     if ( m_config.m_alloc_policy == ON_MISS )
-        m_tag_array->fill(e->second.m_cache_index,time);
+        m_tag_array->fill(e->second.m_cache_index,time,mf->is_prefetched());
     else if ( m_config.m_alloc_policy == ON_FILL )
-        m_tag_array->fill(e->second.m_block_addr,time);
+        m_tag_array->fill(e->second.m_block_addr,time, mf->is_prefetched());
     else abort();
-    // if(mf->is_prefetched()){
-    //     m_tag_array->set_prefetch_flag();
-    // }
+    if(mf->is_prefetched()){
+        m_stats.inc_num_prefetched();
+    }
     bool has_atomic = false;
     m_mshrs.mark_ready(e->second.m_block_addr, has_atomic);
     if (has_atomic) {
@@ -752,19 +768,29 @@ void baseline_cache::send_read_request(new_addr_type addr, new_addr_type block_a
 
     bool mshr_hit = m_mshrs.probe(block_addr);
     bool mshr_avail = !m_mshrs.full(block_addr);
+    //added by gh
+    cache_request_status cache_status;
+
     if ( mshr_hit && mshr_avail ) {
     	if(read_only)
-    		m_tag_array->access(block_addr,time,cache_index);
+    		cache_status = m_tag_array->access(block_addr,time,cache_index);//added by gh
     	else
-    		m_tag_array->access(block_addr,time,cache_index,wb,evicted);
-
+    		cache_status = m_tag_array->access(block_addr,time,cache_index,wb,evicted);//added by gh
+        //added by gh
+        if(cache_status==MISS&&evicted.m_prefetched&&!evicted.m_accessed){
+            m_stats.inc_num_unused_prefetched();
+        }
         m_mshrs.add(block_addr,mf);
         do_miss = true;
     } else if ( !mshr_hit && mshr_avail && (m_miss_queue.size() < m_config.m_miss_queue_size) ) {
     	if(read_only)
-    		m_tag_array->access(block_addr,time,cache_index);
+    		cache_status = m_tag_array->access(block_addr,time,cache_index);//added by gh
     	else
-    		m_tag_array->access(block_addr,time,cache_index,wb,evicted);
+    		cache_status = m_tag_array->access(block_addr,time,cache_index,wb,evicted);//added by gh
+        //added by gh
+        if(cache_status==MISS&&evicted.m_prefetched&&!evicted.m_accessed){
+            m_stats.inc_num_unused_prefetched();
+        }
 
         m_mshrs.add(block_addr,mf);
         m_extra_mf_fields[mf] = extra_mf_fields(block_addr,cache_index, mf->get_data_size());
@@ -1072,7 +1098,6 @@ data_cache::access( new_addr_type addr,
                     unsigned time,
                     std::list<cache_event> &events )
 {
-
     assert( mf->get_data_size() <= m_config.get_line_sz());
     bool wr = mf->get_is_write();
     new_addr_type block_addr = m_config.block_addr(addr);
@@ -1083,6 +1108,14 @@ data_cache::access( new_addr_type addr,
         = process_tag_probe( wr, probe_status, addr, cache_index, mf, time, events );
     m_stats.inc_stats(mf->get_access_type(),
         m_stats.select_stats_status(probe_status, access_status));
+    //added by gh
+    if(access_status==HIT){
+        if(m_tag_array->get_block(cache_index).m_prefetched)
+        {
+            m_tag_array->get_block(cache_index).m_accessed=true;
+            m_stats.inc_stats(mf->get_access_type(),PREFETCH_HIT);
+        }
+    }
     return access_status;
 }
 
