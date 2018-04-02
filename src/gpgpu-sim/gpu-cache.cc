@@ -262,6 +262,24 @@ enum cache_request_status tag_array::access( new_addr_type addr, unsigned time, 
     }
     return status;
 }
+
+void tag_array::fill( new_addr_type addr, unsigned time)
+{
+    assert( m_config.m_alloc_policy == ON_FILL );
+    unsigned idx;
+    enum cache_request_status status = probe(addr,idx);
+    assert(status==MISS); // MSHR should have prevented redundant memory request
+    m_lines[idx].allocate( m_config.tag(addr), m_config.block_addr(addr), time );
+    m_lines[idx].fill(time);
+    // m_lines[idx].m_prefetched=is_prefetched;
+}
+
+void tag_array::fill( unsigned index, unsigned time ) 
+{
+    assert( m_config.m_alloc_policy == ON_MISS );
+    m_lines[index].fill(time);
+    // m_lines[index].m_prefetched=is_prefetched;
+}
 //added by gh
 void tag_array::fill( new_addr_type addr, unsigned time, bool is_prefetched)
 {

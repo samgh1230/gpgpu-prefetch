@@ -359,6 +359,9 @@ public:
 
     void fill( new_addr_type addr, unsigned time );
     void fill( unsigned idx, unsigned time );
+    //added by gh
+    void fill( new_addr_type addr, unsigned time , bool is_prefetched);
+    void fill( unsigned idx, unsigned time, bool is_prefetched );   
 
     unsigned size() const { return m_config.get_num_lines();}
     cache_block_t &get_block(unsigned idx) { return m_lines[idx];}
@@ -485,7 +488,7 @@ struct cache_sub_stats{
         data_port_busy_cycles = 0; 
         fill_port_busy_cycles = 0; 
         //added by gh
-        prefetch_accesses = 0;
+        prefetch_access = 0;
         prefetch_misses = 0;
         num_prefetched = 0;
         num_unused_prefetched=0;
