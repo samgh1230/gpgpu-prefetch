@@ -1297,6 +1297,7 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
         m_stat_wl_load++;
         if(is_prefetching(addr,wid)){
             m_stat_not_finished++;
+            m_req_q.clear();
         }
         it_wid it = wid2cur_wl.find(wid);
         if(it!=wid2cur_wl.end()){
