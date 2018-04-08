@@ -2044,6 +2044,7 @@ void shader_core_ctx::register_cta_thread_exit( unsigned cta_num )
           m_kernel->dec_running();
           printf("GPGPU-Sim uArch: Shader %u empty (release kernel %u \'%s\').\n", m_sid, m_kernel->get_uid(),
                  m_kernel->name().c_str() );
+          reset_prefetch_started();
           if( m_kernel->no_more_ctas_to_run() ) {
               if( !m_kernel->running() ) {
                   printf("GPGPU-Sim uArch: GPU detected kernel \'%s\' finished on shader %u.\n", m_kernel->name().c_str(), m_sid );
@@ -3509,8 +3510,10 @@ unsigned simt_core_cluster::issue_block2core()
         }
         kernel_info_t *kernel = m_core[core]->get_kernel();
         if( kernel && !kernel->no_more_ctas_to_run() && (m_core[core]->get_n_active_cta() < m_config->max_cta(*kernel)) ) {
+            
             m_core[core]->issue_block2core(*kernel);
             num_blocks_issued++;
+
             m_cta_issue_next_core=core; 
             break;
         }
@@ -3532,8 +3535,15 @@ unsigned simt_core_cluster::issue_block2core(new_addr_type* struct_bound)
         }
         kernel_info_t *kernel = m_core[core]->get_kernel();
         if( kernel && !kernel->no_more_ctas_to_run() && (m_core[core]->get_n_active_cta() < m_config->max_cta(*kernel)) ) {
-            m_core[core]->issue_block2core(*kernel,struct_bound);
-            m_core[core]->set_prefetch_started();
+            //if(!m_core[core]->get_gpu()->m_prefetch_started)
+            if(m_core[core]->is_prefetch_started()){
+                m_core[core]->issue_block2core(*kernel);
+                num_blocks_issued++;
+            } else {
+                m_core[core]->issue_block2core(*kernel, struct_bound);
+                m_core[core]->set_prefetch_started();
+                num_blocks_issued++;
+            }
             num_blocks_issued++;
             m_cta_issue_next_core=core; 
             break;
