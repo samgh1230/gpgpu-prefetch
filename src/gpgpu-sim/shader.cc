@@ -1388,6 +1388,9 @@ ldst_unit::process_prefetch_cache_access( cache_t* cache,
         result = COAL_STALL;
         // assert( !read_sent );
         // assert( !write_sent );
+        if(m_prefetcher->is_visit(mf->get_addr())){
+            m_prefetcher->del_req_from_top();
+        }
         delete mf;
     } else {
         assert( status == MISS || status == HIT_RESERVED );

@@ -1313,6 +1313,10 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
 
     bool is_full(){return m_req_q.size()==m_max_queue_length;}
 
+    bool is_visit(new_addr_type addr){
+        return addr>=m_bound_regs[6]&&addr<m_bound_regs[7];
+    }
+
     void new_load_addr(new_addr_type addr, unsigned wid, new_addr_type marked_addr)
     {
         it_wid it = wid2cur_wl.find(wid);
