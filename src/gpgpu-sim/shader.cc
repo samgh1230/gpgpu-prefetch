@@ -1402,18 +1402,18 @@ ldst_unit::process_prefetch_cache_access( cache_t* cache,
     return result;
 }
 
-mem_stage_stall_type ldst_unit::process_prefetch_queue( cache_t *cache )
+mem_stage_stall_type ldst_unit::process_prefetch_queue( cache_t *cache, unsigned wid)
 {
     mem_stage_stall_type result = NO_RC_FAIL;
     // printf("process prefetch queue\n");
-    if( m_prefetcher->queue_empty() )
+    if( m_prefetcher->queue_empty(wid) )
         return result;
 
     if( !cache->data_port_free() ) 
         return DATA_PORT_STALL; 
 
     //const mem_access_t &access = inst.accessq_back();
-    mem_access_t* access = m_prefetcher->pop_from_top();
+    mem_access_t* access = m_prefetcher->pop_from_top(wid);
     mem_fetch *mf = m_mf_allocator->alloc(access->get_addr(),access->get_type(),access->get_size(),false);
     std::list<cache_event> events;
     mf->set_prefetch_flag();
@@ -1485,12 +1485,25 @@ bool ldst_unit::memory_cycle( warp_inst_t &inst, mem_stage_stall_type &stall_rea
        ((inst.space.get_type() != global_space) &&
         (inst.space.get_type() != local_space) &&
         (inst.space.get_type() != param_space_local)) ) {
-            process_prefetch_queue(m_L1D);
+            for(unsigned i=0; i<2; i++)
+            {
+                unsigned wid = m_core->get_sched(i)->get_last_issued_wid();
+                if(wid!=-1)
+                    process_prefetch_queue(m_L1D,wid);
+            }
             return true;
         }
     //    return true;
-   if( inst.active_count() == 0 ) 
+   if( inst.active_count() == 0 ){
+       for(unsigned i=0; i<2; i++)
+        {
+            unsigned wid = m_core->get_sched(i)->get_last_issued_wid();
+            if(wid!=-1)
+                process_prefetch_queue(m_L1D,wid);
+        }
        return true;
+   } 
+    //    return true;
    assert( !inst.accessq_empty() );
    mem_stage_stall_type stall_cond = NO_RC_FAIL;
    const mem_access_t &access = inst.accessq_back();

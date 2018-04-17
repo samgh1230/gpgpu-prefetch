@@ -355,6 +355,14 @@ public:
     // Derived classes can override this function to populate
     // m_supervised_warps with their scheduling policies
     virtual void order_warps() = 0;
+    //added by gh
+    unsigned get_last_issued_wid(){
+        if(m_last_supervised_issued != m_supervised_warps.end()){
+            return (*m_last_supervised_issued)->get_warp_id();
+        } else {
+            return -1;
+        }
+    }
 
 protected:
     virtual void do_on_warp_issued( unsigned warp_id,
@@ -1624,6 +1632,8 @@ public:
             return accumulate(m_num_reqs.begin(),m_num_reqs.end(),0.0)/m_num_reqs.size();
         else return 1;
     }
+
+    scheduler_unit* get_sched(unsigned id) {return schedulers[id];}
     
     
  
