@@ -419,6 +419,16 @@ extern "C" {
  *                                                                              *
  *******************************************************************************/
 
+//added by gh
+__host__ cudaError_t CUDARTAPI cudaPrintSummary()
+{
+	CUctx_st* context = GPGPUSim_Context();
+	gpgpu_sim* gpu = context->get_device()->get_gpgpu();
+	gpu->print_summary();
+	return g_last_cudaError = cudaSuccess;
+}
+
+
 __host__ cudaError_t CUDARTAPI cudaStartPrefetch()
 {
 	CUctx_st* context = GPGPUSim_Context();

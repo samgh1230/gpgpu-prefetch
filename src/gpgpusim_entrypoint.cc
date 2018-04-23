@@ -84,6 +84,7 @@ void *gpgpu_sim_thread_sequential(void*)
       }
       sem_post(&g_sim_signal_finish);
    } while(!done);
+
    sem_post(&g_sim_signal_exit);
    return NULL;
 }
@@ -150,6 +151,7 @@ void *gpgpu_sim_thread_concurrent(void*)
        printf("GPGPU-Sim: *** simulation thread exiting ***\n");
        fflush(stdout);
     }
+
     sem_post(&g_sim_signal_exit);
     return NULL;
 }

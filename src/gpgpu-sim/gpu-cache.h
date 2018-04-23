@@ -430,7 +430,8 @@ public:
     /// Returns next ready access
     mem_fetch *next_access();
     void display( FILE *fp ) const;
-
+    //added by gh
+    mem_fetch* first_access(new_addr_type block_addr);
     void check_mshr_parameters( unsigned num_entries, unsigned max_merged )
     {
     	assert(m_num_entries==num_entries && "Change of MSHR parameters between kernels is not allowed");
@@ -566,6 +567,11 @@ public:
     void inc_num_unused_prefetched(){
         m_num_unused_prefetched++;
     }
+
+    //added by gh
+    std::vector< std::vector<unsigned> > get_stats(){
+        return m_stats;
+    }
 private:
     bool check_valid(int type, int status) const;
 
@@ -659,7 +665,10 @@ public:
     // accessors for cache bandwidth availability 
     bool data_port_free() const { return m_bandwidth_management.data_port_free(); } 
     bool fill_port_free() const { return m_bandwidth_management.fill_port_free(); } 
-
+    /// Checks whether this request can be handled on this cycle. num_miss equals max # of misses to be handled on this cycle
+    bool miss_queue_full(unsigned num_miss){
+    	  return ( (m_miss_queue.size()+num_miss) >= m_config.m_miss_queue_size );
+    }   
 protected:
     // Constructor that can be used by derived classes with custom tag arrays
     baseline_cache( const char *name,
@@ -694,11 +703,15 @@ protected:
             m_block_addr = a;
             m_cache_index = i;
             m_data_size = d;
+            //added by gh
+            m_do_fill = false;
         }
         bool m_valid;
         new_addr_type m_block_addr;
         unsigned m_cache_index;
         unsigned m_data_size;
+        //added by gh
+        bool m_do_fill;
     };
 
     typedef std::map<mem_fetch*,extra_mf_fields> extra_mf_fields_lookup;
@@ -707,10 +720,7 @@ protected:
 
     cache_stats m_stats;
 
-    /// Checks whether this request can be handled on this cycle. num_miss equals max # of misses to be handled on this cycle
-    bool miss_queue_full(unsigned num_miss){
-    	  return ( (m_miss_queue.size()+num_miss) >= m_config.m_miss_queue_size );
-    }
+    
     /// Read miss handler without writeback
     void send_read_request(new_addr_type addr, new_addr_type block_addr, unsigned cache_index, mem_fetch *mf,
     		unsigned time, bool &do_miss, std::list<cache_event> &events, bool read_only, bool wa);
@@ -985,6 +995,16 @@ public:
                 mem_fetch *mf,
                 unsigned time,
                 std::list<cache_event> &events );
+
+    virtual void fill(mem_fetch* mf, unsigned time);
+    virtual enum cache_request_status
+                    process_tag_probe( bool wr,
+                                                enum cache_request_status probe_status,
+                                                new_addr_type addr,
+                                                unsigned cache_index,
+                                                mem_fetch* mf,
+                                                unsigned time,
+                                                std::list<cache_event>& events );
 
 protected:
     l1_cache( const char *name,

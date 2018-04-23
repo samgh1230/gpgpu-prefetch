@@ -441,7 +441,8 @@ private:
    void print_dram_stats(FILE *fout) const;
    void shader_print_runtime_stat( FILE *fout );
    void shader_print_l1_miss_stat( FILE *fout ) const;
-   void shader_print_cache_stats( FILE *fout ) const;
+   //added by gh
+   void shader_print_cache_stats( FILE *fout ) ;
    void shader_print_scheduler_stat( FILE* fout, bool print_dynamic_info ) const;
    void visualizer_printstat();
    void print_shader_cycle_distro( FILE *fout ) const;
@@ -501,6 +502,45 @@ public:
    unsigned long long  gpu_sim_insn_last_update;
    unsigned gpu_sim_insn_last_update_sid;
 
+//added by gh
+   typedef struct {
+       float m_ipc;
+       int  m_stall_dramfull;
+       int  m_stall_icntfull;
+       int  m_l1_num_access;
+       int  m_l1_num_miss;
+       int  m_l1_num_res_fail;
+       int  m_l1_num_prefetched;
+       int  m_l1_num_unused_prefetched;
+       int  m_l2_glore_num_access;
+       int  m_l2_glore_num_hit;
+       int  m_l2_glore_num_miss;
+       int  m_l2_glore_num_hit_reserved;
+       int  m_l2_glore_num_res_fail;
+       int  m_l2_glore_num_hit_prefetched;
+       int  m_l2_glore_num_prefetched;
+       int  m_l2_glore_num_unused_prefetched;
+   }stat_summary;
+
+   stat_summary sum_stat;
+   void print_summary(){
+       printf("summary: %12.4f %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n",\
+                        sum_stat.m_ipc,\
+                        sum_stat.m_stall_dramfull,\
+                        sum_stat.m_stall_icntfull,\
+                        sum_stat.m_l1_num_access,\
+                        sum_stat.m_l1_num_miss,\
+                        sum_stat.m_l1_num_res_fail,\
+                        sum_stat.m_l1_num_prefetched,\
+                        sum_stat.m_l1_num_unused_prefetched,\
+                        sum_stat.m_l2_glore_num_access,\
+                        sum_stat.m_l2_glore_num_hit,\
+                        sum_stat.m_l2_glore_num_hit_reserved,\
+                        sum_stat.m_l2_glore_num_miss,\
+                        sum_stat.m_l2_glore_num_res_fail,\
+                        sum_stat.m_l2_glore_num_prefetched,\
+                        sum_stat.m_l2_glore_num_unused_prefetched);
+   }
 //    new_addr_type worklist_start_addr, worklist_end_addr;
 //    new_addr_type vertexlist_start_addr, vertexlist_end_addr;
 //    new_addr_type edgelist_start_addr, edgelist_end_addr;

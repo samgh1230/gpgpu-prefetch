@@ -896,6 +896,9 @@ void gpgpu_sim::gpu_print_stat()
    printf("gpu_tot_ipc = %12.4f\n", (float)(gpu_tot_sim_insn+gpu_sim_insn) / (gpu_tot_sim_cycle+gpu_sim_cycle));
    printf("gpu_tot_issued_cta = %lld\n", gpu_tot_issued_cta);
 
+//added by gh
+   sum_stat.m_ipc = (float)(gpu_tot_sim_insn+gpu_sim_insn) / (gpu_tot_sim_cycle+gpu_sim_cycle);
+
    FILE* fout=fopen("new-50.txt","a");
    fprintf(fout,"%lld\t%12.4f\t",gpu_tot_sim_cycle+gpu_sim_cycle,(float)(gpu_tot_sim_insn+gpu_sim_insn)/(gpu_tot_sim_cycle+gpu_sim_cycle));
    fflush(fout);
@@ -906,6 +909,9 @@ void gpgpu_sim::gpu_print_stat()
    printf("gpu_stall_dramfull = %d\n", gpu_stall_dramfull);
    printf("gpu_stall_icnt2sh    = %d\n", gpu_stall_icnt2sh );
 
+//added by gh
+   sum_stat.m_stall_dramfull = gpu_stall_dramfull;
+   sum_stat.m_stall_icntfull = gpu_stall_icnt2sh;
    time_t curr_time;
    time(&curr_time);
    unsigned long long elapsed_time = MAX( curr_time - g_simulation_starttime, 1 );
@@ -970,6 +976,20 @@ void gpgpu_sim::gpu_print_stat()
           printf("L2_total_cache_breakdown:\n");
           l2_stats.print_stats(stdout, "L2_cache_stats_breakdown");
           total_l2_css.print_port_stats(stdout, "L2_cache");
+          
+          //added by gh
+          sum_stat.m_l2_glore_num_access = l2_stats.get_stats()[GLOBAL_ACC_R][HIT] + \
+                                            l2_stats.get_stats()[GLOBAL_ACC_R][HIT_RESERVED] + \
+                                            l2_stats.get_stats()[GLOBAL_ACC_R][MISS] + \
+                                            l2_stats.get_stats()[GLOBAL_ACC_R][RESERVATION_FAIL];
+
+          sum_stat.m_l2_glore_num_hit = l2_stats.get_stats()[GLOBAL_ACC_R][HIT];
+          sum_stat.m_l2_glore_num_hit_reserved = l2_stats.get_stats()[GLOBAL_ACC_R][HIT_RESERVED];
+          sum_stat.m_l2_glore_num_miss = l2_stats.get_stats()[GLOBAL_ACC_R][MISS];
+          sum_stat.m_l2_glore_num_res_fail = l2_stats.get_stats()[GLOBAL_ACC_R][RESERVATION_FAIL];
+          sum_stat.m_l2_glore_num_hit_prefetched = l2_stats.get_stats()[GLOBAL_ACC_R][PREFETCH_HIT];
+          sum_stat.m_l2_glore_num_prefetched = total_l2_css.num_prefetched;
+          sum_stat.m_l2_glore_num_unused_prefetched = total_l2_css.num_unused_prefetched;
        }
    }
 
