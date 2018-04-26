@@ -883,6 +883,7 @@ void scheduler_unit::cycle()
                                        (*iter)->get_warp_id(), (*iter)->get_dynamic_warp_id() );
                         ready_inst = true;
                         const active_mask_t &active_mask = m_simt_stack[warp_id]->get_active_mask();
+                        unsigned num_active = active_mask.count();
                         assert( warp(warp_id).inst_in_pipeline() );
                         if ( (pI->op == LOAD_OP) || (pI->op == STORE_OP) || (pI->op == MEMORY_BARRIER_OP) ) {
                             if( m_mem_out->has_free() ) {
@@ -890,6 +891,23 @@ void scheduler_unit::cycle()
                                 issued++;
                                 issued_inst=true;
                                 warp_inst_issued = true;
+                                //added by gh
+                                warp_inst_t tmp = *pI;
+                                unsigned line = tmp.get_source_line(pc);
+                                if(line==140){
+                                    if(warp(warp_id).m_last_cycle_exec_loop!=0){
+                                        m_stats->m_warp_exec_loop_cycles.push_back(gpu_sim_cycle+gpu_tot_sim_cycle-warp(warp_id).m_last_cycle_exec_loop);
+                                    }
+                                    warp(warp_id).m_last_cycle_exec_loop = gpu_sim_cycle + gpu_tot_sim_cycle;
+                                }
+                                //added by gh
+                                if(pc==warp(warp_id).m_last_cycle_collision_pc){
+                                    unsigned long long latency = gpu_sim_cycle+gpu_tot_sim_cycle-warp(warp_id).m_last_cycle_collision;
+                                    warp_inst_t tmp = *pI;
+                                    tmp.add_collision_latency(pc,latency,num_active);
+                                    warp(warp_id).m_last_cycle_collision = 0;
+                                    warp(warp_id).m_last_cycle_collision_pc = 0;
+                                }
                             }
                         } else {
                             bool sp_pipe_avail = m_sp_out->has_free();
@@ -900,17 +918,43 @@ void scheduler_unit::cycle()
                                 issued++;
                                 issued_inst=true;
                                 warp_inst_issued = true;
+                                //added by gh
+                                if(pc==warp(warp_id).m_last_cycle_collision_pc){
+                                    unsigned long long latency = gpu_sim_cycle+gpu_tot_sim_cycle-warp(warp_id).m_last_cycle_collision;
+                                    warp_inst_t tmp = *pI;
+                                    tmp.add_collision_latency(pc,latency,num_active);
+                                    warp(warp_id).m_last_cycle_collision = 0;
+                                    warp(warp_id).m_last_cycle_collision_pc = 0;
+                                }
                             } else if ( (pI->op == SFU_OP) || (pI->op == ALU_SFU_OP) ) {
                                 if( sfu_pipe_avail ) {
                                     m_shader->issue_warp(*m_sfu_out,pI,active_mask,warp_id);
                                     issued++;
                                     issued_inst=true;
                                     warp_inst_issued = true;
+                                    //added by gh
+                                    if(pc==warp(warp_id).m_last_cycle_collision_pc){
+                                        unsigned long long latency = gpu_sim_cycle+gpu_tot_sim_cycle-warp(warp_id).m_last_cycle_collision;
+                                        warp_inst_t tmp = *pI;
+                                        tmp.add_collision_latency(pc,latency,num_active);
+                                        warp(warp_id).m_last_cycle_collision = 0;
+                                        warp(warp_id).m_last_cycle_collision_pc = 0;
+                                    }
                                 }
-                            }                         }
+                            }                         
+                        }
                     } else {
                         SCHED_DPRINTF( "Warp (warp_id %u, dynamic_warp_id %u) fails scoreboard\n",
                                        (*iter)->get_warp_id(), (*iter)->get_dynamic_warp_id() );
+                        //added by gh
+                        warp_inst_t tmp = *pI;
+                        unsigned line = tmp.get_source_line(pc);
+                        if(line==142||line==150||line==173||line==180){
+                            if(warp(warp_id).m_last_cycle_collision == 0){
+                                warp(warp_id).m_last_cycle_collision = gpu_sim_cycle + gpu_tot_sim_cycle;
+                                warp(warp_id).m_last_cycle_collision_pc = pc;
+                            }
+                        }
                     }
                 }
             } else if( valid ) {
@@ -935,6 +979,13 @@ void scheduler_unit::cycle()
             // We could remove the need for this loop by associating a
             // supervised_is index with each entry in the m_next_cycle_prioritized_warps
             // vector. For now, just run through until you find the right warp_id
+
+            //added by gh
+            if(*m_last_supervised_issued!=*iter&&m_last_supervised_issued!=m_supervised_warps.end()){
+                if((*iter)->m_last_cycle_scheduled_out!=0)
+                    m_stats->m_warp_stall_cycles.push_back(gpu_sim_cycle+gpu_tot_sim_cycle-(*iter)->m_last_cycle_scheduled_out);
+                (*m_last_supervised_issued)->m_last_cycle_scheduled_out = gpu_sim_cycle + gpu_tot_sim_cycle;
+            }
             for ( std::vector< shd_warp_t* >::const_iterator supervised_iter = m_supervised_warps.begin();
                   supervised_iter != m_supervised_warps.end();
                   ++supervised_iter ) {
@@ -2129,7 +2180,23 @@ void gpgpu_sim::shader_print_scheduler_stat( FILE* fout, bool print_dynamic_info
     }
     fprintf( fout, "\n" );
 }
-
+//added by gh
+float gpgpu_sim::shader_warp_stats(){
+    float warp_stat=0.0f;
+    //warp_stat.clear();
+    for ( unsigned i = 0; i < m_shader_config->n_simt_clusters; ++i ) {
+            warp_stat += m_cluster[i]->get_warp_stats();
+    }
+    return warp_stat/m_shader_config->n_simt_clusters;
+}
+float gpgpu_sim::shader_loop_stats(){
+    float warp_stat=0.0f;
+    //warp_stat.clear();
+    for ( unsigned i = 0; i < m_shader_config->n_simt_clusters; ++i ) {
+            warp_stat += m_cluster[i]->get_loop_stats();
+    }
+    return warp_stat/m_shader_config->n_simt_clusters;
+}
 //added by gh
 void gpgpu_sim::shader_print_cache_stats( FILE *fout ) {
 
@@ -3088,6 +3155,21 @@ void shader_core_ctx::print_cache_stats( FILE *fp, unsigned& dl1_accesses, unsig
    m_ldst_unit->print_cache_stats( fp, dl1_accesses, dl1_misses );
 }
 
+//added by gh
+float shader_core_ctx::get_warp_stats(){
+    unsigned long long cycles = 0;
+    for(unsigned i=0; i<m_stats->m_warp_stall_cycles.size();i++){
+        cycles += m_stats->m_warp_stall_cycles[i];
+    }
+    return (float)cycles/m_stats->m_warp_stall_cycles.size();
+}
+float shader_core_ctx::get_loop_stats(){
+    unsigned long long cycles = 0;
+    for(unsigned i=0; i<m_stats->m_warp_exec_loop_cycles.size();i++){
+        cycles += m_stats->m_warp_exec_loop_cycles[i];
+    }
+    return (float)cycles/m_stats->m_warp_exec_loop_cycles.size();
+}
 void shader_core_ctx::get_cache_stats(cache_stats &cs){
     // Adds stats from each cache to 'cs'
     cs += m_L1I->get_stats(); // Get L1I stats
@@ -3684,7 +3766,21 @@ void simt_core_cluster::get_icnt_stats(long &n_simt_to_mem, long &n_mem_to_simt)
 	n_simt_to_mem = simt_to_mem;
 	n_mem_to_simt = mem_to_simt;
 }
-
+//added by gh
+float simt_core_cluster::get_warp_stats(){
+    float warp_stat=0.0f;
+    for ( unsigned i = 0; i < m_config->n_simt_cores_per_cluster; ++i ) {
+        warp_stat += m_core[i]->get_warp_stats();
+    }
+    return warp_stat/m_config->n_simt_cores_per_cluster;
+}
+float simt_core_cluster::get_loop_stats(){
+    float warp_stat=0.0f;
+    for ( unsigned i = 0; i < m_config->n_simt_cores_per_cluster; ++i ) {
+        warp_stat += m_core[i]->get_loop_stats();
+    }
+    return warp_stat/m_config->n_simt_cores_per_cluster;
+}
 void simt_core_cluster::get_cache_stats(cache_stats &cs) const{
     for ( unsigned i = 0; i < m_config->n_simt_cores_per_cluster; ++i ) {
         m_core[i]->get_cache_stats(cs);

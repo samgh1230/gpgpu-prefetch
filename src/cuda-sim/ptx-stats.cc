@@ -88,7 +88,7 @@ public:
         : exec_count(0), latency(0), dram_traffic(0), 
           smem_n_way_bank_conflict_total(0), smem_warp_count(0),
           gmem_n_access_total(0), gmem_warp_count(0), exposed_latency(0),
-          warp_divergence(0)
+          warp_divergence(0), collision_latency(0)//added by gh
     { }
     
     unsigned long exec_count;
@@ -100,6 +100,8 @@ public:
     unsigned long gmem_warp_count;          // number of warps causing these uncoalesced access
     unsigned long long exposed_latency; // latency exposed as pipeline bubbles (attributed to this instruction)
     unsigned long long warp_divergence; // number of warp divergence occured at this instruction
+    //added by gh
+    unsigned long long collision_latency;
 };
 
 #if (tr1_hash_map_ismap == 1)
@@ -127,11 +129,14 @@ void ptx_file_line_stats_write_file()
     FILE * pfile;
 
     pfile = fopen(ptx_line_stats_filename, "w");
-    fprintf(pfile,"kernel line : count latency dram_traffic smem_bk_conflicts smem_warp gmem_access_generated gmem_warp exposed_latency warp_divergence\n");
+    //added by gh
+    fprintf(pfile,"kernel line : count latency collision_latency dram_traffic smem_bk_conflicts smem_warp gmem_access_generated gmem_warp exposed_latency warp_divergence\n");
     for( it=ptx_file_line_stats_tracker.begin(); it != ptx_file_line_stats_tracker.end(); it++ ) {
         fprintf(pfile, "%s %i : ", it->first.st.c_str(), it->first.line);
         fprintf(pfile, "%lu ", it->second.exec_count);
         fprintf(pfile, "%llu ", it->second.latency);
+        //added by gh
+        fprintf(pfile, "%llu ", it->second.collision_latency);
         fprintf(pfile, "%llu ", it->second.dram_traffic);
         fprintf(pfile, "%llu ", it->second.smem_n_way_bank_conflict_total);
         fprintf(pfile, "%lu ", it->second.smem_warp_count);
@@ -159,6 +164,14 @@ void ptx_file_line_stats_add_latency(unsigned pc, unsigned latency)
     const ptx_instruction *pInsn = function_info::pc_to_instruction(pc);
     
     ptx_file_line_stats_tracker[ptx_file_line(pInsn->source_file(), pInsn->source_line())].latency += latency;
+}
+
+//added by gh
+void ptx_file_line_stats_add_collision_latency(unsigned pc, unsigned latency)
+{
+    const ptx_instruction *pInsn = function_info::pc_to_instruction(pc);
+    
+    ptx_file_line_stats_tracker[ptx_file_line(pInsn->source_file(), pInsn->source_line())].collision_latency += latency;
 }
 
 // attribute dram traffic to this ptx instruction (specified by the pc)

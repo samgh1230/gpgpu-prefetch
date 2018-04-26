@@ -505,6 +505,8 @@ public:
 //added by gh
    typedef struct {
        float m_ipc;
+       float m_warp_avg_stall_cycles;
+       float m_loop_avg_cycles;
        int  m_stall_dramfull;
        int  m_stall_icntfull;
        int  m_l1_num_access;
@@ -524,8 +526,10 @@ public:
 
    stat_summary sum_stat;
    void print_summary(){
-       printf("summary: %12.4f %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n",\
+       printf("summary: %12.4f %12.4f %12.4f %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n",\
                         sum_stat.m_ipc,\
+                        sum_stat.m_warp_avg_stall_cycles,\
+                        sum_stat.m_loop_avg_cycles,\
                         sum_stat.m_stall_dramfull,\
                         sum_stat.m_stall_icntfull,\
                         sum_stat.m_l1_num_access,\
@@ -541,6 +545,8 @@ public:
                         sum_stat.m_l2_glore_num_prefetched,\
                         sum_stat.m_l2_glore_num_unused_prefetched);
    }
+   float shader_warp_stats();
+   float shader_loop_stats();
 //    new_addr_type worklist_start_addr, worklist_end_addr;
 //    new_addr_type vertexlist_start_addr, vertexlist_end_addr;
 //    new_addr_type edgelist_start_addr, edgelist_end_addr;

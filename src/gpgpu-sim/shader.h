@@ -109,6 +109,11 @@ public:
         m_last_fetch=0;
         m_next=0;
         m_inst_at_barrier=NULL;
+        //added by gh
+        m_last_cycle_scheduled_out = 0;
+        m_last_cycle_exec_loop = 0;
+        m_last_cycle_collision = 0;
+        m_last_cycle_collision_pc = 0;
     }
     void init( address_type start_pc,
                unsigned cta_id,
@@ -125,6 +130,12 @@ public:
         n_completed   -= active.count(); // active threads are not yet completed
         m_active_threads = active;
         m_done_exit=false;
+
+        //added by gh
+        m_last_cycle_scheduled_out = 0;
+        m_last_cycle_exec_loop = 0;
+        m_last_cycle_collision = 0;
+        m_last_cycle_collision_pc = 0;
     }
 
     bool functional_done() const;
@@ -227,6 +238,14 @@ public:
 
     unsigned get_dynamic_warp_id() const { return m_dynamic_warp_id; }
     unsigned get_warp_id() const { return m_warp_id; }
+
+
+    //added by gh 
+    unsigned long long m_last_cycle_scheduled_out;
+    unsigned long long m_last_cycle_exec_loop;
+    unsigned long long m_last_cycle_collision;
+    unsigned long long m_last_cycle_collision_pc;
+
 
 private:
     static const unsigned IBUFFER_SIZE=2;
@@ -1490,6 +1509,9 @@ public:
 
         m_shader_dynamic_warp_issue_distro.resize( config->num_shader() );
         m_shader_warp_slot_issue_distro.resize( config->num_shader() );
+        //added by gh
+        m_warp_stall_cycles.clear();
+        m_warp_exec_loop_cycles.clear();
     }
 
     ~shader_core_stats()
@@ -1523,6 +1545,10 @@ public:
         return m_shader_warp_slot_issue_distro;
     }
 
+
+    //added by gh
+    std::vector< unsigned long long > m_warp_stall_cycles;
+    std::vector< unsigned long long > m_warp_exec_loop_cycles;
 private:
     const shader_core_config *m_config;
 
@@ -1612,6 +1638,9 @@ public:
     unsigned get_stat_not_finished() {return m_ldst_unit->get_prefetcher()->get_stat_not_finished();}
 
     void read_data_from_memory(unsigned long long* data, new_addr_type addr);
+
+    float get_warp_stats();
+    float get_loop_stats();
 
     void change2small_blksz(unsigned blksz);
     void change2big_blksz(unsigned blksz);
@@ -1913,6 +1942,10 @@ public:
 
     void core_cycle();
     void icnt_cycle();
+
+    //added by gh
+    float get_warp_stats();
+    float get_loop_stats();
 
     void reinit();
     unsigned issue_block2core();

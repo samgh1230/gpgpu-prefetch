@@ -832,6 +832,9 @@ public:
         m_uid=0;
         m_empty=true; 
         m_config=NULL; 
+        //added by gh
+        m_collision_stall_cycle = 0;
+        m_marked_inst=false;
     }
     warp_inst_t( const core_config *config ) 
     { 
@@ -845,6 +848,8 @@ public:
         m_cache_hit=false;
         m_is_printf=false;
 
+        //added by gh
+        m_collision_stall_cycle = 0;
         m_marked_inst=false;
     }
     virtual ~warp_inst_t(){
@@ -895,8 +900,10 @@ public:
             m_per_scalar_thread[n].memreqaddr[i] = addr[i];
     }
 
+    //added by gh
     void set_marked() {m_marked_inst=true;}
     bool is_marked() {return m_marked_inst;}
+
 
     struct transaction_info {
         std::bitset<4> chunks; // bitmask: 32-byte chunks accessed
@@ -1005,6 +1012,10 @@ public:
     void print( FILE *fout ) const;
     unsigned get_uid() const { return m_uid; }
 
+//added by gh
+    void add_collision_latency(unsigned pc, unsigned long long latency, unsigned num_active) ;
+    unsigned get_source_line(unsigned pc);
+    unsigned long long m_collision_stall_cycle;
 
 protected:
 
@@ -1022,6 +1033,7 @@ protected:
     active_mask_t m_warp_issued_mask; // active mask at issue (prior to predication test) -- for instruction counting
 
     bool m_marked_inst;
+    bool m_collision_inst;
     
     struct per_thread_info {
         per_thread_info() {

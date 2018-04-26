@@ -908,6 +908,9 @@ void gpgpu_sim::gpu_print_stat()
    // performance counter for stalls due to congestion.
    printf("gpu_stall_dramfull = %d\n", gpu_stall_dramfull);
    printf("gpu_stall_icnt2sh    = %d\n", gpu_stall_icnt2sh );
+//added by gh
+   sum_stat.m_warp_avg_stall_cycles = shader_warp_stats();
+   sum_stat.m_loop_avg_cycles = shader_loop_stats();
 
 //added by gh
    sum_stat.m_stall_dramfull = gpu_stall_dramfull;

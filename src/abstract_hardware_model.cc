@@ -933,7 +933,19 @@ void warp_inst_t::completed( unsigned long long cycle ) const
 {
    unsigned long long latency = cycle - issue_cycle; 
    assert(latency <= cycle); // underflow detection 
-   ptx_file_line_stats_add_latency(pc, latency * active_count());  
+   ptx_file_line_stats_add_latency(pc, latency * active_count());
+   //added by gh
+//    if(pc==142||pc==150||pc==173||pc==180)
+//     ptx_file_line_stats_add_collision_latency(pc,(cycle-m_collision_stall_cycle)*active_count());
+}
+unsigned warp_inst_t::get_source_line(unsigned pc)
+{
+    const ptx_instruction *pInsn = function_info::pc_to_instruction(pc);
+    return pInsn->source_line();
+}
+void warp_inst_t::add_collision_latency(unsigned line,unsigned long long latency, unsigned num_active)
+{
+    ptx_file_line_stats_add_collision_latency(line,latency*num_active);
 }
 
 

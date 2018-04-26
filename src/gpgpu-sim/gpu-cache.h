@@ -995,7 +995,7 @@ public:
                 mem_fetch *mf,
                 unsigned time,
                 std::list<cache_event> &events );
-
+//added by gh
     virtual void fill(mem_fetch* mf, unsigned time);
     virtual enum cache_request_status
                     process_tag_probe( bool wr,

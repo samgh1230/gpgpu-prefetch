@@ -1196,10 +1196,16 @@ void ptx_thread_info::ptx_exec_inst( warp_inst_t &inst, unsigned lane_id)
    assert( pc == inst.pc ); // make sure timing model and functional model are in sync
    const ptx_instruction *pI = m_func_info->get_instruction(pc);
    set_npc( pc + pI->inst_size() );
-   
-   if(pI->source_line()==140){
+   //added by gh
+    unsigned line = pI->source_line();
+
+   if(line==140){
        inst.set_marked();
    }
+
+//    if(line==142||line==150||line==173||line==180){
+//        inst.set_collision();
+//    }
    try {
 
    clearRPC();
