@@ -375,6 +375,15 @@ public:
     // m_supervised_warps with their scheduling policies
     virtual void order_warps() = 0;
 
+    unsigned get_last_issued_wid()
+    {
+        if(m_last_supervised_issued!= m_supervised_warps.end()){
+            return (*m_last_supervised_issued)->get_warp_id();
+        } else{
+            return -1;
+        }
+    }
+
 protected:
     virtual void do_on_warp_issued( unsigned warp_id,
                                     unsigned num_issued,
@@ -1654,7 +1663,8 @@ public:
         else return 1;
     }
     
-    
+//    added by gh
+    scheduler_unit* get_sched(unsigned id) {return scheduler[id];}
  
     // modifiers
     void cycle();

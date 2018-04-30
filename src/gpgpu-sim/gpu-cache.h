@@ -1259,7 +1259,7 @@ public:
     void init()
     {
         m_req_q.clear();
-        m_max_queue_length=1000;
+        m_max_queue_length=10000;
         // m_double_line=false;
         // m_worklist_head=m_worklist_tail=-1;
         // m_prefetched_vid=-1;
@@ -1315,9 +1315,15 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
         unsigned long long cur_wl_idx = (addr-m_bound_regs[0])/8;
         printf("add wid2cur_wl mapping. addr:0x%x, current wl index:%llu\n",addr,cur_wl_idx);
         m_stat_wl_load++;
+        if(m_req_q.find(wid)==m_req_q.end())
+        {
+            std::list<mem_access_t*> req;
+            req.clear();
+            m_req_q.insert(std::map<unsigned, std::list<mem_access_t*> >::value_type(wid,req));
+        }
         if(is_prefetching(addr,wid)){
             m_stat_not_finished++;
-            m_req_q.clear();
+            m_req_q[wid].clear();
         }
         it_wid it = wid2cur_wl.find(wid);
         if(it!=wid2cur_wl.end()){
@@ -1607,14 +1613,14 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
         printf("generate worklist prefetch\n");
         assert(addr>=m_bound_regs[0]&&addr<m_bound_regs[1]);
         mem_access_t* access = new mem_access_t(GLOBAL_ACC_R, addr, 128, false, wid,marked_addr);
-        m_req_q.push_back(access);
+        m_req_q[wid].push_back(access);
     }
     void gen_prefetch_vertexlist(new_addr_type addr, unsigned wid, new_addr_type marked_addr)//generate vertexlist prefetch, push reqs into req_q
     {
         printf("generate vertexlist prefetch\n");
         assert(addr>=m_bound_regs[2]&&addr<m_bound_regs[3]);
         mem_access_t* access = new mem_access_t(GLOBAL_ACC_R, addr, 128, false, wid,marked_addr);
-        m_req_q.push_back(access);
+        m_req_q[wid].push_back(access);
     }
     void gen_prefetch_edgelist(new_addr_type addr, unsigned wid, new_addr_type marked_addr)//generate edgelist prefetch, push reqs into req_q
     {
@@ -1624,7 +1630,7 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
             if(next_addr>=m_bound_regs[5]||next_addr<m_bound_regs[4])
                 break;
             mem_access_t* access = new mem_access_t(GLOBAL_ACC_R, next_addr, 128, false, wid,marked_addr);
-            m_req_q.push_back(access);
+            m_req_q[wid].push_back(access);
         }
     }
     void gen_prefetch_edgelist_on_vertex(unsigned long long start_offset, unsigned long long end_offset, unsigned wid, new_addr_type marked_addr)
@@ -1654,7 +1660,7 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
             if(next_addr >= m_bound_regs[5] || next_addr < m_bound_regs[4])
                 break;
             mem_access_t* access = new mem_access_t(GLOBAL_ACC_R, next_addr, 128, false, wid,marked_addr);
-            m_req_q.push_back(access);
+            m_req_q[wid].push_back(access);
         }
     }
     void gen_prefetch_visitedlist(new_addr_type addr, unsigned wid, new_addr_type marked_addr)//generate visited list prefetch, push reqs into req_q
@@ -1662,23 +1668,23 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
         printf("generate visitlist prefetch\n");
         assert(addr>=m_bound_regs[6]&&addr<m_bound_regs[7]);
         mem_access_t* access = new mem_access_t(GLOBAL_ACC_R, addr, 128, false,wid,marked_addr);
-        m_req_q.push_back(access);
+        m_req_q[wid].push_back(access);
     }
 
     bool is_prefetching(new_addr_type addr, unsigned wid)
     {
-        if(req_in_queue(addr)||waiting_for_data(addr,wid))
+        if(req_in_queue(addr,wid)||waiting_for_data(addr,wid))
             return true;
         else return false;
     }
 
-    bool req_in_queue(new_addr_type addr)
+    bool req_in_queue(new_addr_type addr, unsigned wid)
     {
         if(addr==m_bound_regs[0])
             return false;
         new_addr_type marked_addr = addr-8;
-        std::list<mem_access_t*>::iterator it = m_req_q.begin();
-        for(;it!=m_req_q.end();it++){
+        std::list<mem_access_t*>::iterator it = m_req_q[wid].begin();
+        for(;it!=m_req_q[wid].end();it++){
             if((*it)->get_marked_addr()==addr)
                 return true;
         }
@@ -1723,17 +1729,17 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
         return false;
     }
 
-    mem_access_t* pop_from_top() {return m_req_q.front();}
-    void del_req_from_top() {m_req_q.pop_front();}
-    bool queue_empty() {return !m_req_q.size();}
+    mem_access_t* pop_from_top(unsigned wid) {return m_req_q[wid].front();}
+    void del_req_from_top(unsigned wid) {m_req_q[wid].pop_front();}
+    bool queue_empty(unsigned wid) {return !m_req_q[wid].size();}
     Bound_Reg m_bound_regs[10];
 
     
 private:
     //worklist, vertexlist, edgelist, visitedlist, out_worklist. (start, end)
     //EWMA_Unit m_ewma;
-    std::list<mem_access_t*> m_req_q;
-    std::list<mem_access_t*> m_prior_q;
+    std::map<unsigned, std::list<mem_access_t*> >m_req_q;
+    //std::list<mem_access_t*> m_prior_q;
     //Prefetch_Mode m_mode;
     unsigned m_max_queue_length;
     bool m_double_line;
