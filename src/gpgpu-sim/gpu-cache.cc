@@ -793,7 +793,6 @@ void baseline_cache::fill(mem_fetch *mf, unsigned time){
         block.m_status = MODIFIED; // mark line as dirty for atomic operation
     }
     m_extra_mf_fields.erase(mf);
-    //added by gh
     m_bandwidth_management.use_fill_port(mf); 
 }
 /// Checks if mf is waiting to be filled by lower memory level
@@ -1189,7 +1188,6 @@ data_cache::process_tag_probe( bool wr,
                                        mf, time, events, probe_status );
         }
     }
-    //added by gh
     m_bandwidth_management.use_data_port(mf, access_status, events); 
     return access_status;
 }
