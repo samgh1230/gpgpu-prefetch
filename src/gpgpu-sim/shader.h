@@ -1153,7 +1153,7 @@ public:
     }
 
     mem_stage_stall_type process_prefetch_cache_access(cache_t* cache, new_addr_type address, std::list<cache_event>& events, mem_fetch* mf, cache_request_status status);
-    mem_stage_stall_type process_prefetch_queue( cache_t *cache);
+    mem_stage_stall_type process_prefetch_queue( cache_t *cache, unsigned wid);
 
     void change2big_blksz(unsigned blksz){return;}
     void change2small_blksz(unsigned blksz){return;}
@@ -1663,8 +1663,9 @@ public:
         else return 1;
     }
     
-//    added by gh
-    scheduler_unit* get_sched(unsigned id) {return scheduler[id];}
+//    added by gh.multi-q
+    scheduler_unit* get_sched(unsigned id) {return schedulers[id];}
+    unsigned get_num_warp() {return m_warp.size();}
  
     // modifiers
     void cycle();

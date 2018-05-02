@@ -1429,7 +1429,7 @@ ldst_unit::process_prefetch_cache_access( cache_t* cache,
    
     if ( status == HIT ) {
         // assert( !read_sent );
-        m_prefetcher->del_req_from_top();// inst.accessq_pop_back();
+        m_prefetcher->del_req_from_top(mf->get_marked_wid());// inst.accessq_pop_back();
         unsigned long long data[16];
         for(unsigned i=0;i<16;i++)
             m_core->read_data_from_memory(&data[i],mf->get_addr()+8*i);
@@ -1443,36 +1443,35 @@ ldst_unit::process_prefetch_cache_access( cache_t* cache,
         // assert( !read_sent );
         // assert( !write_sent );
             if(m_prefetcher->is_visit(mf->get_addr())){
-                m_prefetcher->del_req_from_top();
+                m_prefetcher->del_req_from_top(mf->get_marked_wid());
             }
             delete mf;
         } else {
-            m_prefetcher->del_req_from_top();
+            m_prefetcher->del_req_from_top(mf->get_marked_wid());
         }
     } else {
         assert( status == MISS || status == HIT_RESERVED );
         //inst.clear_active( access.get_warp_mask() ); // threads in mf writeback when mf returns
-        m_prefetcher->del_req_from_top();// inst.accessq_pop_back();
+        m_prefetcher->del_req_from_top(mf->get_marked_wid());// inst.accessq_pop_back();
     }
     // if( !inst.accessq_empty() )
     //     result = BK_CONF;
     return result;
 }
-//added by gh
+//added by gh. multi-q
 mem_stage_stall_type ldst_unit::process_prefetch_queue( cache_t *cache, unsigned wid )
 {
     mem_stage_stall_type result = NO_RC_FAIL;
-    // printf("process prefetch queue\n");
     // added by gh
-    if( m_prefetcher->queue_empty(wid) )
+    // if( m_prefetcher->queue_empty(wid) )
+    //     return result;
+
+    unsigned warpid = m_prefetcher->find_queue(wid);
+    if(warpid==-1)
         return result;
 
-    // if( !cache->data_port_free() ) 
-    //     return DATA_PORT_STALL; 
-
-    //const mem_access_t &access = inst.accessq_back();
     // added by gh
-    mem_access_t* access = m_prefetcher->pop_from_top(wid);
+    mem_access_t* access = m_prefetcher->pop_from_top(warpid);
     mem_fetch *mf = m_mf_allocator->alloc(access->get_addr(),access->get_type(),access->get_size(),false);
     std::list<cache_event> events;
     mf->set_prefetch_flag();
@@ -1544,8 +1543,7 @@ bool ldst_unit::memory_cycle( warp_inst_t &inst, mem_stage_stall_type &stall_rea
        ((inst.space.get_type() != global_space) &&
         (inst.space.get_type() != local_space) &&
         (inst.space.get_type() != param_space_local)) ) {
-            // process_prefetch_queue(m_L1D);
-            // added by gh
+            // added by gh. multi-q
             for(unsigned i=0; i<2; i++){
                 unsigned wid = m_core->get_sched(i)->get_last_issued_wid();
                 if(wid!=-1)
@@ -1555,7 +1553,7 @@ bool ldst_unit::memory_cycle( warp_inst_t &inst, mem_stage_stall_type &stall_rea
         }
     //    return true;
    if( inst.active_count() == 0 ) {
-    //    added by gh
+    //    added by gh. multi-q
        for(unsigned i=0; i<2; i++){
             unsigned wid = m_core->get_sched(i)->get_last_issued_wid();
             if(wid!=-1)
@@ -1622,6 +1620,19 @@ void ldst_unit::fill( mem_fetch *mf )
 {
     mf->set_status(IN_SHADER_LDST_RESPONSE_FIFO,gpu_sim_cycle+gpu_tot_sim_cycle);
     m_response_fifo.push_back(mf);
+    //added by gh
+    unsigned long long data[16];
+    for(unsigned i=0;i<16;i++)
+        m_core->read_data_from_memory(&data[i],mf->get_addr()+8*i);
+
+    new_addr_type block_addr = m_L1D->get_config().block_addr(mf->get_addr());
+    std::list<mem_fetch*> req_list = m_L1D->get_mf_with_blk_addr(block_addr);
+    std::list<mem_fetch*>::iterator iter = req_list.begin();
+    for(;iter!=req_list.end();iter++){
+        //forward prefetched data to every mf with the same block address.
+        if((*iter)->is_prefetched())
+            m_prefetcher->prefetched_data(data,(*iter)->get_addr(),(*iter)->get_marked_wid(),(*iter)->get_marked_addr());
+    }
 }
 
 void ldst_unit::flush(){
@@ -1804,7 +1815,7 @@ ldst_unit::ldst_unit( mem_fetch_interface *icnt,
                               m_mf_allocator,
                               IN_L1D_MISS_QUEUE );
     }
-    m_prefetcher = new Prefetch_Unit();
+    m_prefetcher = new Prefetch_Unit(m_core->get_num_warp());
 }
 
 ldst_unit::ldst_unit( mem_fetch_interface *icnt,
@@ -1988,15 +1999,13 @@ void ldst_unit::cycle()
        mem_fetch *mf = m_response_fifo.front();
        //added by gh
        if(mf->is_prefetched()){
-        //    if(m_L1D->fill_port_free()){
-            m_L1D->fill(mf,gpu_sim_cycle+gpu_tot_sim_cycle);
-            m_response_fifo.pop_front();
-            unsigned long long data[16];
-            for(unsigned i=0;i<16;i++)
-                m_core->read_data_from_memory(&data[i],mf->get_addr()+8*i);
-            m_prefetcher->prefetched_data(data,mf->get_addr(),mf->get_marked_wid(),mf->get_marked_addr());
-            //delete mf;//是否需要删除
-        //    }
+            #ifndef BYPASS 
+            if(m_L1D->fill_port_free())
+            #endif
+            {
+                m_L1D->fill(mf,gpu_sim_cycle+gpu_tot_sim_cycle);
+                m_response_fifo.pop_front();
+            }
        } else if (mf->istexture()) {
            if (m_L1T->fill_port_free()) {
                m_L1T->fill(mf,gpu_sim_cycle+gpu_tot_sim_cycle);

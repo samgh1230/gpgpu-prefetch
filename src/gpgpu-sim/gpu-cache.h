@@ -437,6 +437,11 @@ public:
     	assert(m_num_entries==num_entries && "Change of MSHR parameters between kernels is not allowed");
     	assert(m_max_merged==max_merged && "Change of MSHR parameters between kernels is not allowed");
     }
+    //added by gh. response fifo forward
+    std::list<mem_fetch*> get_mf_with_blk_addr(new_addr_type block_addr)
+    {
+        return m_data[block_addr].m_list;
+    }
 
 private:
 
@@ -669,6 +674,12 @@ public:
     bool miss_queue_full(unsigned num_miss){
     	  return ( (m_miss_queue.size()+num_miss) >= m_config.m_miss_queue_size );
     }   
+    //added by gh. response fifo forward.
+    cache_config get_config(){return m_config;}
+    std::list<mem_fetch*> get_mf_with_blk_addr(new_addr_type block_addr)
+    {
+       return m_mshrs.get_mf_with_blk_addr(block_addr);
+    }
 protected:
     // Constructor that can be used by derived classes with custom tag arrays
     baseline_cache( const char *name,
@@ -996,7 +1007,7 @@ public:
                 unsigned time,
                 std::list<cache_event> &events );
 //added by gh
-    virtual void fill(mem_fetch* mf, unsigned time);
+    // virtual void fill(mem_fetch* mf, unsigned time);
     virtual enum cache_request_status
                     process_tag_probe( bool wr,
                                                 enum cache_request_status probe_status,
@@ -1248,12 +1259,16 @@ enum Prefetch_Mode{
     LARGE_NODE
 };
 #define ADDRALIGN 0xffffff80;
-#define MAX_LINE 8
+#define MAX_LINE 2 
 #define ALIGN_32 0xffffffe0;
 #define STEP 1
 class Prefetch_Unit{
 public:
-    Prefetch_Unit(){init();m_stat_not_finished=0;m_stat_wl_load=0;}
+    Prefetch_Unit(unsigned num_warp)
+    :m_stat_not_finished(0), m_stat_wl_load(0), m_num_warp(num_warp)
+    {
+        init();
+    }
     ~Prefetch_Unit(){}
 
     void init()
@@ -1277,10 +1292,10 @@ public:
 
     }
     
-    void reinit()
-    {
-        init();
-    }
+    // void reinit()
+    // {
+    //     init();
+    // }
 
     void update_struct_bound(new_addr_type* struct_bound){
         for(unsigned i=0; i<10; i++)
@@ -1732,6 +1747,23 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
     mem_access_t* pop_from_top(unsigned wid) {return m_req_q[wid].front();}
     void del_req_from_top(unsigned wid) {m_req_q[wid].pop_front();}
     bool queue_empty(unsigned wid) {return !m_req_q[wid].size();}
+
+    //multi-q. round-robin.
+    unsigned find_queue(unsigned wid)
+    {
+        unsigned res = -1;
+
+        for(unsigned i=wid, cnt=0; cnt<m_num_warp; cnt++ ,i++)
+        {
+            if(i==m_num_warp)
+                i=0;
+            if(m_req_q.find(i)!=m_req_q.end() && !queue_empty(i)){
+                res = i;
+                break;
+            }
+        }
+        return res;
+    }
     Bound_Reg m_bound_regs[10];
 
     
@@ -1739,6 +1771,7 @@ private:
     //worklist, vertexlist, edgelist, visitedlist, out_worklist. (start, end)
     //EWMA_Unit m_ewma;
     std::map<unsigned, std::list<mem_access_t*> >m_req_q;
+    unsigned m_num_warp;
     //std::list<mem_access_t*> m_prior_q;
     //Prefetch_Mode m_mode;
     unsigned m_max_queue_length;
