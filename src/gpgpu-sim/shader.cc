@@ -1430,9 +1430,10 @@ ldst_unit::process_prefetch_cache_access( cache_t* cache,
     if ( status == HIT ) {
         // assert( !read_sent );
         m_prefetcher->del_req_from_top(mf->get_marked_wid());// inst.accessq_pop_back();
+        new_addr_type block_addr = m_L1D->get_config().block_addr(mf->get_addr());
         unsigned long long data[16];
         for(unsigned i=0;i<16;i++)
-            m_core->read_data_from_memory(&data[i],mf->get_addr()+8*i);
+            m_core->read_data_from_memory(&data[i],block_addr+8*i);
         m_prefetcher->prefetched_data(data,mf->get_addr(),mf->get_marked_wid(),mf->get_marked_addr());
         delete mf;
     } else if ( status == RESERVATION_FAIL ) {
@@ -1499,9 +1500,18 @@ mem_stage_stall_type ldst_unit::process_memory_access_queue( cache_t *cache, war
         exit(1);
     }
     enum cache_request_status status = cache->access(mf->get_addr(),mf,gpu_sim_cycle+gpu_tot_sim_cycle,events);
-    if(status!=RESERVATION_FAIL){
+    //added by gh. 
+    if(status != HIT && status != RESERVATION_FAIL){
         if(inst.is_load() && m_core->is_prefetch_started()&&inst.is_marked())
             m_prefetcher->new_load_addr(mf->get_addr(),inst.warp_id(),inst.get_first_valid_addr());
+    } else if(status == HIT){
+        if(inst.is_load() && m_core->is_prefetch_started()&&inst.is_marked()){
+            new_addr_type block_addr = m_L1D->get_config().block_addr(mf->get_addr());
+            unsigned long long data[16];
+            for(unsigned i=0;i<16;i++)
+                m_core->read_data_from_memory(&data[i],block_addr+8*i);
+            m_prefetcher->new_load_addr_2(mf->get_addr(),inst.warp_id(),inst.get_first_valid_addr(),data);
+        }
     }
     return process_cache_access( cache, mf->get_addr(), inst, events, mf, status );
 }
@@ -1620,19 +1630,20 @@ void ldst_unit::fill( mem_fetch *mf )
 {
     mf->set_status(IN_SHADER_LDST_RESPONSE_FIFO,gpu_sim_cycle+gpu_tot_sim_cycle);
     m_response_fifo.push_back(mf);
-    //added by gh
-    unsigned long long data[16];
-    for(unsigned i=0;i<16;i++)
-        m_core->read_data_from_memory(&data[i],mf->get_addr()+8*i);
 
-    new_addr_type block_addr = m_L1D->get_config().block_addr(mf->get_addr());
-    std::list<mem_fetch*> req_list = m_L1D->get_mf_with_blk_addr(block_addr);
-    std::list<mem_fetch*>::iterator iter = req_list.begin();
-    for(;iter!=req_list.end();iter++){
-        //forward prefetched data to every mf with the same block address.
-        if((*iter)->is_prefetched())
-            m_prefetcher->prefetched_data(data,(*iter)->get_addr(),(*iter)->get_marked_wid(),(*iter)->get_marked_addr());
-    }
+    //added by gh. response fifo forward.
+    // new_addr_type block_addr = m_L1D->get_config().block_addr(mf->get_addr());
+    // unsigned long long data[16];
+    // for(unsigned i=0;i<16;i++)
+    //     m_core->read_data_from_memory(&data[i],block_addr+8*i);
+
+    // std::list<mem_fetch*> req_list = m_L1D->get_mf_with_blk_addr(block_addr);
+    // std::list<mem_fetch*>::iterator iter = req_list.begin();
+    // for(;iter!=req_list.end();iter++){
+    //     //forward prefetched data to every mf with the same block address.
+    //     if((*iter)->is_prefetched())
+    //         m_prefetcher->prefetched_data(data,(*iter)->get_addr(),(*iter)->get_marked_wid(),(*iter)->get_marked_addr());
+    // }
 }
 
 void ldst_unit::flush(){
@@ -1999,10 +2010,15 @@ void ldst_unit::cycle()
        mem_fetch *mf = m_response_fifo.front();
        //added by gh
        if(mf->is_prefetched()){
-            #ifndef BYPASS 
+            //#ifndef BYPASS 
             if(m_L1D->fill_port_free())
-            #endif
+            // #endif
             {
+                new_addr_type block_addr = m_L1D->get_config().block_addr(mf->get_addr());
+                unsigned long long data[16];
+                for(unsigned i=0;i<16;i++)
+                    m_core->read_data_from_memory(&data[i],block_addr+8*i);
+                m_prefetcher->prefetched_data(data,mf->get_addr(),mf->get_marked_wid(),mf->get_marked_addr());
                 m_L1D->fill(mf,gpu_sim_cycle+gpu_tot_sim_cycle);
                 m_response_fifo.pop_front();
             }

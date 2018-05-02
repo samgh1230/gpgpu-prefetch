@@ -736,41 +736,41 @@ void baseline_cache::cycle(){
 }
 
 /// Interface for response from lower memory level (model bandwidth restictions in caller)
-// void l1_cache::fill(mem_fetch *mf, unsigned time){
-//     #ifndef BYPASS 
-//     baseline_cache::fill(mf,time);
-//     #elif BYPASS
-//     extra_mf_fields_lookup::iterator e = m_extra_mf_fields.find(mf);
-//     assert( e != m_extra_mf_fields.end() );
-//     assert( e->second.m_valid );
-//     mf->set_data_size( e->second.m_data_size );
-//     //added by gh
-//     if(e->second.m_do_fill)
-//     {
-//         if ( m_config.m_alloc_policy == ON_MISS )
-//             m_tag_array->fill(e->second.m_cache_index,time,mf->is_prefetched());
-//         else if ( m_config.m_alloc_policy == ON_FILL )
-//             m_tag_array->fill(e->second.m_block_addr,time, mf->is_prefetched());
-//         else abort();
-//     }
-//     //added by gh
-//     if(mf->is_prefetched()){
-//         m_stats.inc_num_prefetched();
-//     }
-//     bool has_atomic = false;
-//     m_mshrs.mark_ready(e->second.m_block_addr, has_atomic);
-//     //added by gh
-//     if (has_atomic&&e->second.m_do_fill) {
-//         assert(m_config.m_alloc_policy == ON_MISS);
-//         cache_block_t &block = m_tag_array->get_block(e->second.m_cache_index);
-//         block.m_status = MODIFIED; // mark line as dirty for atomic operation
-//     }
-//     m_extra_mf_fields.erase(mf);
-//     //added by gh
-//     if(!mf->is_prefetched())
-//         m_bandwidth_management.use_fill_port(mf); 
-//     #endif
-// }
+void l1_cache::fill(mem_fetch *mf, unsigned time){
+    #ifndef BYPASS 
+    baseline_cache::fill(mf,time);
+    #elif BYPASS
+    extra_mf_fields_lookup::iterator e = m_extra_mf_fields.find(mf);
+    assert( e != m_extra_mf_fields.end() );
+    assert( e->second.m_valid );
+    mf->set_data_size( e->second.m_data_size );
+    //added by gh
+    if(e->second.m_do_fill)
+    {
+        if ( m_config.m_alloc_policy == ON_MISS )
+            m_tag_array->fill(e->second.m_cache_index,time,mf->is_prefetched());
+        else if ( m_config.m_alloc_policy == ON_FILL )
+            m_tag_array->fill(e->second.m_block_addr,time, mf->is_prefetched());
+        else abort();
+    }
+    //added by gh
+    if(mf->is_prefetched()){
+        m_stats.inc_num_prefetched();
+    }
+    bool has_atomic = false;
+    m_mshrs.mark_ready(e->second.m_block_addr, has_atomic);
+    //added by gh
+    if (has_atomic&&e->second.m_do_fill) {
+        assert(m_config.m_alloc_policy == ON_MISS);
+        cache_block_t &block = m_tag_array->get_block(e->second.m_cache_index);
+        block.m_status = MODIFIED; // mark line as dirty for atomic operation
+    }
+    m_extra_mf_fields.erase(mf);
+    //added by gh
+    if(!mf->is_prefetched())
+        m_bandwidth_management.use_fill_port(mf); 
+    #endif
+}
 
 /// Interface for response from lower memory level (model bandwidth restictions in caller)
 void baseline_cache::fill(mem_fetch *mf, unsigned time){
@@ -840,14 +840,14 @@ void baseline_cache::send_read_request(new_addr_type addr, new_addr_type block_a
     		m_tag_array->access(block_addr,time,cache_index,wb,evicted);
         
         m_mshrs.add(block_addr,mf);
-        // added by gh
-        extra_mf_fields_lookup::iterator iter = m_extra_mf_fields.begin();
-        for(;iter!=m_extra_mf_fields.end();iter++){
-            if(m_config.block_addr(iter->first->get_addr()) == block_addr)
-                break;
-        }
-        if(iter!=m_extra_mf_fields.end())
-            iter->second.m_do_fill |= !mf->is_prefetched();
+        // added by gh. bypass
+        // extra_mf_fields_lookup::iterator iter = m_extra_mf_fields.begin();
+        // for(;iter!=m_extra_mf_fields.end();iter++){
+        //     if(m_config.block_addr(iter->first->get_addr()) == block_addr)
+        //         break;
+        // }
+        // if(iter!=m_extra_mf_fields.end())
+        //     iter->second.m_do_fill |= !mf->is_prefetched();
 
         do_miss = true;
     } else if ( !mshr_hit && mshr_avail && (m_miss_queue.size() < m_config.m_miss_queue_size) ) {
@@ -857,8 +857,8 @@ void baseline_cache::send_read_request(new_addr_type addr, new_addr_type block_a
     		m_tag_array->access(block_addr,time,cache_index,wb,evicted);
         m_mshrs.add(block_addr,mf);
         m_extra_mf_fields[mf] = extra_mf_fields(block_addr,cache_index, mf->get_data_size());
-        //added by gh
-        m_extra_mf_fields[mf].m_do_fill = !mf->is_prefetched();
+        //added by gh. bypass
+        // m_extra_mf_fields[mf].m_do_fill = !mf->is_prefetched();
         mf->set_data_size( m_config.get_line_sz() );
         m_miss_queue.push_back(mf);
         mf->set_status(m_miss_queue_status,time);
@@ -1242,31 +1242,27 @@ l1_cache::access( new_addr_type addr,
                     unsigned time,
                     std::list<cache_event> &events )
 {
-    // #ifndef BYPASS
-    return data_cache::access(addr,mf,time,events);
-    // #elif BYPASS
-    // assert( mf->get_data_size() <= m_config.get_line_sz());
-    // bool wr = mf->get_is_write();
-    // new_addr_type block_addr = m_config.block_addr(addr);
-    // unsigned cache_index = (unsigned)-1;
-    // enum cache_request_status probe_status
-    //     = m_tag_array->probe( block_addr, cache_index );
-    // enum cache_request_status access_status
-    //     = process_tag_probe( wr, probe_status, addr, cache_index, mf, time, events );
+    assert( mf->get_data_size() <= m_config.get_line_sz());
+    bool wr = mf->get_is_write();
+    new_addr_type block_addr = m_config.block_addr(addr);
+    unsigned cache_index = (unsigned)-1;
+    enum cache_request_status probe_status
+        = m_tag_array->probe( block_addr, cache_index );
+    enum cache_request_status access_status
+        = process_tag_probe( wr, probe_status, addr, cache_index, mf, time, events );
     
-    // if(!mf->is_prefetched())
-    //     m_stats.inc_stats(mf->get_access_type(),
-    //         m_stats.select_stats_status(probe_status, access_status));
-    // //added by gh
-    // if(access_status==HIT){
-    //     if(m_tag_array->get_block(cache_index).m_prefetched)
-    //     {
-    //         m_tag_array->get_block(cache_index).m_accessed=true;
-    //         m_stats.inc_stats(mf->get_access_type(),PREFETCH_HIT);
-    //     }
-    // }
-    // return access_status;
-    // #endif
+    if(!mf->is_prefetched())
+        m_stats.inc_stats(mf->get_access_type(),
+            m_stats.select_stats_status(probe_status, access_status));
+    //added by gh
+    if(access_status==HIT){
+        if(m_tag_array->get_block(cache_index).m_prefetched)
+        {
+            m_tag_array->get_block(cache_index).m_accessed=true;
+            m_stats.inc_stats(mf->get_access_type(),PREFETCH_HIT);
+        }
+    }
+    return access_status;
 }
 /// This is meant to model the first level data cache in Fermi.
 /// It is write-evict (global) or write-back (local) at the
