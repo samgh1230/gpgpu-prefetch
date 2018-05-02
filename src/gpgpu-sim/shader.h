@@ -1666,6 +1666,7 @@ public:
 //    added by gh.multi-q
     scheduler_unit* get_sched(unsigned id) {return schedulers[id];}
     unsigned get_num_warp() {return m_warp.size();}
+    unsigned get_num_sched() {return m_config->gpgpu_num_sched_per_core;}
  
     // modifiers
     void cycle();

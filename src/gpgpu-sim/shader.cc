@@ -1826,7 +1826,7 @@ ldst_unit::ldst_unit( mem_fetch_interface *icnt,
                               m_mf_allocator,
                               IN_L1D_MISS_QUEUE );
     }
-    m_prefetcher = new Prefetch_Unit(m_core->get_num_warp());
+    m_prefetcher = new Prefetch_Unit(m_core->get_num_warp(),m_core->get_num_sched());
 }
 
 ldst_unit::ldst_unit( mem_fetch_interface *icnt,

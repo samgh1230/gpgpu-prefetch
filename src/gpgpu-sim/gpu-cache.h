@@ -1264,8 +1264,8 @@ enum Prefetch_Mode{
 #define STEP 1
 class Prefetch_Unit{
 public:
-    Prefetch_Unit(unsigned num_warp)
-    :m_stat_not_finished(0), m_stat_wl_load(0), m_num_warp(num_warp)
+    Prefetch_Unit(unsigned num_warp, unsigned num_sched)
+    :m_stat_not_finished(0), m_stat_wl_load(0), m_num_warp(num_warp),m_num_sched(num_sched)
     {
         init();
     }
@@ -1812,10 +1812,10 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
     {
         unsigned res = -1;
 
-        for(unsigned i=wid, cnt=0; cnt<m_num_warp; cnt++ ,i++)
+        for(unsigned i=wid, cnt=0; cnt<m_num_warp; cnt++ ,i+=m_num_sched)
         {
-            if(i==m_num_warp)
-                i=0;
+            if(i>=m_num_warp)
+                i %= m_num_warp;
             if(m_req_q.find(i)!=m_req_q.end() && !queue_empty(i)){
                 res = i;
                 break;
@@ -1831,6 +1831,7 @@ private:
     //EWMA_Unit m_ewma;
     std::map<unsigned, std::list<mem_access_t*> >m_req_q;
     unsigned m_num_warp;
+    unsigned m_num_sched;
     //std::list<mem_access_t*> m_prior_q;
     //Prefetch_Mode m_mode;
     unsigned m_max_queue_length;
