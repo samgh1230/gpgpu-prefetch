@@ -526,7 +526,7 @@ public:
 
    stat_summary sum_stat;
    void print_summary(){
-       printf("summary: %12.4f %12.4f %12.4f %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n",\
+       printf("summary: %.4f %.4f %.4f %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n",\
                         sum_stat.m_ipc,\
                         sum_stat.m_warp_avg_stall_cycles,\
                         sum_stat.m_loop_avg_cycles,\

@@ -1162,7 +1162,7 @@ public:
     // {
     //     m_prefetcher->set_cur_wl_idx(wl_idx,inst);
     // }
-
+    std::list<mem_fetch*>::iterator prior_response();
     Prefetch_Unit* get_prefetcher() {return m_prefetcher;}
     class shader_core_ctx *m_core;
 protected:

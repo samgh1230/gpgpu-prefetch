@@ -1998,6 +1998,17 @@ void ldst_unit::issue( register_set &reg_set )
    pipelined_simd_unit::issue(reg_set);
 }
 */
+//added by gh. prior response.
+std::list<mem_fetch*>::iterator ldst_unit::prior_response()
+{
+    std::list<mem_fetch*>::iterator iter = m_response_fifo.begin();
+    for(; iter != m_response_fifo.end(); iter++){
+        if(!(*iter)->is_prefetched())
+            return iter;
+    }
+    return m_response_fifo.begin();
+}
+
 void ldst_unit::cycle()
 {
    writeback();
@@ -2007,7 +2018,9 @@ void ldst_unit::cycle()
             move_warp(m_pipeline_reg[stage], m_pipeline_reg[stage+1]);
 
    if( !m_response_fifo.empty() ) {
-       mem_fetch *mf = m_response_fifo.front();
+       //added by gh. prior response.
+       std::list<mem_fetch*>::iterator iter = prior_response();
+       mem_fetch *mf = *iter;
        //added by gh
        if(mf->is_prefetched()){
             //#ifndef BYPASS 
@@ -2025,18 +2038,24 @@ void ldst_unit::cycle()
        } else if (mf->istexture()) {
            if (m_L1T->fill_port_free()) {
                m_L1T->fill(mf,gpu_sim_cycle+gpu_tot_sim_cycle);
-               m_response_fifo.pop_front(); 
+            //    m_response_fifo.pop_front(); 
+            //added by gh. prior response.
+               m_response_fifo.erase(iter);
            }
        } else if (mf->isconst())  {
            if (m_L1C->fill_port_free()) {
                mf->set_status(IN_SHADER_FETCHED,gpu_sim_cycle+gpu_tot_sim_cycle);
                m_L1C->fill(mf,gpu_sim_cycle+gpu_tot_sim_cycle);
-               m_response_fifo.pop_front(); 
+            //    m_response_fifo.pop_front(); 
+            //added by gh. prior response.
+               m_response_fifo.erase(iter);
            }
        } else {
     	   if( mf->get_type() == WRITE_ACK || ( m_config->gpgpu_perfect_mem && mf->get_is_write() )) {
                m_core->store_ack(mf);
-               m_response_fifo.pop_front();
+            //    m_response_fifo.pop_front();
+            //added by gh. prior response.
+               m_response_fifo.erase(iter);
                delete mf;
            } else {
                assert( !mf->get_is_write() ); // L1 cache is write evict, allocate line on load miss only
@@ -2051,13 +2070,17 @@ void ldst_unit::cycle()
                if( bypassL1D ) {
                    if ( m_next_global == NULL ) {
                        mf->set_status(IN_SHADER_FETCHED,gpu_sim_cycle+gpu_tot_sim_cycle);
-                       m_response_fifo.pop_front();
+                    //    m_response_fifo.pop_front();
+                    //added by gh. prior response.
+                       m_response_fifo.erase(iter);
                        m_next_global = mf;
                    }
                } else {
                    if (m_L1D->fill_port_free()) {
                        m_L1D->fill(mf,gpu_sim_cycle+gpu_tot_sim_cycle);
-                       m_response_fifo.pop_front();
+                    //    m_response_fifo.pop_front();
+                    //added by gh. prior response.
+                       m_response_fifo.erase(iter);
                    }
                }
            }
