@@ -409,8 +409,24 @@ void mshr_table::mark_ready( new_addr_type block_addr, bool &has_atomic ){
 }
 
 /// Returns next ready access
+//added by gh. 
 mem_fetch *mshr_table::next_access(){
     assert( access_ready() );
+    // mem_fetch* result = NULL;
+    // do{
+    //     new_addr_type block_addr = m_current_response.front();
+    //     assert( !m_data[block_addr].m_list.empty() );
+    //     do{
+    //         result = m_data[block_addr].m_list.front();
+    //         m_data[block_addr].m_list.pop_front();
+    //     }while(result->is_prefetched()&&!m_data[block_addr].m_list.empty());
+    //     if ( m_data[block_addr].m_list.empty() ) {
+    //         // release entry
+    //         m_data.erase(block_addr);
+    //         m_current_response.pop_front();
+    //     }
+    // }while(result->is_prefetched()&&!m_current_response.empty());
+    // assert(result);
     new_addr_type block_addr = m_current_response.front();
     assert( !m_data[block_addr].m_list.empty() );
     mem_fetch *result = m_data[block_addr].m_list.front();
@@ -737,39 +753,39 @@ void baseline_cache::cycle(){
 
 /// Interface for response from lower memory level (model bandwidth restictions in caller)
 void l1_cache::fill(mem_fetch *mf, unsigned time){
-    #ifndef BYPASS 
+    // #ifndef BYPASS 
     baseline_cache::fill(mf,time);
-    #elif BYPASS
-    extra_mf_fields_lookup::iterator e = m_extra_mf_fields.find(mf);
-    assert( e != m_extra_mf_fields.end() );
-    assert( e->second.m_valid );
-    mf->set_data_size( e->second.m_data_size );
-    //added by gh
-    if(e->second.m_do_fill)
-    {
-        if ( m_config.m_alloc_policy == ON_MISS )
-            m_tag_array->fill(e->second.m_cache_index,time,mf->is_prefetched());
-        else if ( m_config.m_alloc_policy == ON_FILL )
-            m_tag_array->fill(e->second.m_block_addr,time, mf->is_prefetched());
-        else abort();
-    }
-    //added by gh
-    if(mf->is_prefetched()){
-        m_stats.inc_num_prefetched();
-    }
-    bool has_atomic = false;
-    m_mshrs.mark_ready(e->second.m_block_addr, has_atomic);
-    //added by gh
-    if (has_atomic&&e->second.m_do_fill) {
-        assert(m_config.m_alloc_policy == ON_MISS);
-        cache_block_t &block = m_tag_array->get_block(e->second.m_cache_index);
-        block.m_status = MODIFIED; // mark line as dirty for atomic operation
-    }
-    m_extra_mf_fields.erase(mf);
-    //added by gh
-    if(!mf->is_prefetched())
-        m_bandwidth_management.use_fill_port(mf); 
-    #endif
+    // #elif BYPASS
+    // extra_mf_fields_lookup::iterator e = m_extra_mf_fields.find(mf);
+    // assert( e != m_extra_mf_fields.end() );
+    // assert( e->second.m_valid );
+    // mf->set_data_size( e->second.m_data_size );
+    // //added by gh
+    // if(e->second.m_do_fill)
+    // {
+    //     if ( m_config.m_alloc_policy == ON_MISS )
+    //         m_tag_array->fill(e->second.m_cache_index,time,mf->is_prefetched());
+    //     else if ( m_config.m_alloc_policy == ON_FILL )
+    //         m_tag_array->fill(e->second.m_block_addr,time, mf->is_prefetched());
+    //     else abort();
+    // }
+    // //added by gh
+    // if(mf->is_prefetched()){
+    //     m_stats.inc_num_prefetched();
+    // }
+    // bool has_atomic = false;
+    // m_mshrs.mark_ready(e->second.m_block_addr, has_atomic);
+    // //added by gh
+    // if (has_atomic&&e->second.m_do_fill) {
+    //     assert(m_config.m_alloc_policy == ON_MISS);
+    //     cache_block_t &block = m_tag_array->get_block(e->second.m_cache_index);
+    //     block.m_status = MODIFIED; // mark line as dirty for atomic operation
+    // }
+    // m_extra_mf_fields.erase(mf);
+    // //added by gh
+    // if(!mf->is_prefetched())
+    //     m_bandwidth_management.use_fill_port(mf); 
+    // #endif
 }
 
 /// Interface for response from lower memory level (model bandwidth restictions in caller)

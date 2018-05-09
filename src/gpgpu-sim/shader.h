@@ -1162,7 +1162,13 @@ public:
     // {
     //     m_prefetcher->set_cur_wl_idx(wl_idx,inst);
     // }
+    //added by gh. prior response.
     std::list<mem_fetch*>::iterator prior_response();
+    //added by gh. metric control
+    void start_prefetch() {m_do_prefetch = true;}
+    void stop_prefetch() {m_do_prefetch = false;}
+    bool do_prefetch() {return m_do_prefetch;}
+
     Prefetch_Unit* get_prefetcher() {return m_prefetcher;}
     class shader_core_ctx *m_core;
 protected:
@@ -1229,6 +1235,9 @@ protected:
    enum mem_stage_stall_type m_mem_rc;
 
    shader_core_stats *m_stats; 
+
+   //added by gh. metric control
+   bool m_do_prefetch;
 
    // for debugging
    unsigned long long m_last_inst_gpu_sim_cycle;
@@ -1622,6 +1631,9 @@ private:
 #define SAMPLE_INTERVAL 100*100
 #define SAMPLE_REQ  1000
 #define SAMPLE_INSTRUCTION 10000
+
+#define ALPHA 8
+#define BETA 8
 class shader_core_ctx : public core_t {
 public:
     // creator:
@@ -1634,7 +1646,61 @@ public:
                      shader_core_stats *stats );
 
 // used by simt_core_cluster:
+    typedef struct{
+        void init(){
+            m_pref_wl_start = 0;
+            m_pref_wl_end = 0;
+            valid = false;
+        }
+        unsigned long long m_pref_wl_start;
+        unsigned long long m_pref_wl_end;
+        bool valid;
+    }warp_pref_time_stamp;
 
+    std::vector<warp_pref_time_stamp> m_pref_time_stamps;
+
+    void change_pref_setting()
+    {
+        if(m_mute_pref_cycle==10000){
+            m_ldst_unit->start_prefetch();
+            m_avg_data_cycle = 0;
+            m_mute_pref_cycle = 0;
+            return;
+        }
+        if(!m_ldst_unit->do_prefetch()) {
+            m_mute_pref_cycle++;
+            return ;
+        }
+        if(m_avg_data_cycle>m_avg_loop_cycle)
+            m_ldst_unit->stop_prefetch();
+        // else m_ldst_unit->start_prefetch();
+    }
+    void update_loop_cycle(unsigned long long cycle)
+    {
+        unsigned long long tmp = cycle + (ALPHA-1)*m_avg_loop_cycle;
+        m_avg_loop_cycle = tmp/ALPHA;
+    }
+
+    void update_data_cycle(unsigned long long cycle)
+    {
+        unsigned long long tmp = cycle + (BETA-1)*m_avg_data_cycle;
+        m_avg_data_cycle = tmp/BETA;
+    }
+
+    void set_pref_start_cycle(unsigned index, unsigned long long cycle) {m_pref_time_stamps[index].m_pref_wl_start = cycle; m_pref_time_stamps[index].valid = true;}
+    void set_pref_end_cycle(unsigned index, unsigned long long cycle) {m_pref_time_stamps[index].m_pref_wl_end = cycle;}
+    unsigned long long get_pref_delay(unsigned index) {
+        if(m_pref_time_stamps[index].valid){
+            // assert(m_pref_time_stamps[index].m_pref_wl_end);
+            if(m_pref_time_stamps[index].m_pref_wl_end==0) {
+                m_ldst_unit->stop_prefetch();
+                m_mute_pref_cycle ++;
+            }
+            return m_pref_time_stamps[index].m_pref_wl_end - m_pref_time_stamps[index].m_pref_wl_start;
+        }
+        else return 0;
+    }
+    
     void update_struct_bound(new_addr_type* struct_bound){
         m_ldst_unit->update_prefetch_struct_bound(struct_bound);
     }
@@ -1884,6 +1950,13 @@ public:
     std::vector<float> m_num_reqs;
 
     bool m_prefetch_started;
+    
+    //added by gh. metric control.
+    unsigned long long m_avg_loop_cycle;
+    unsigned long long m_avg_data_cycle;
+    unsigned long long m_mute_pref_cycle;
+
+    
 
     // general information
     unsigned m_sid; // shader id

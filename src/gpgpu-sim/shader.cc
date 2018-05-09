@@ -76,7 +76,7 @@ shader_core_ctx::shader_core_ctx( class gpgpu_sim *gpu,
                                   shader_core_stats *stats )
    : core_t( gpu, NULL, config->warp_size, config->n_thread_per_shader ),
      m_barriers( this, config->max_warps_per_shader, config->max_cta_per_core, config->max_barriers_per_cta, config->warp_size ),
-     m_dynamic_warp_id(0)
+     m_dynamic_warp_id(0), m_avg_data_cycle(0), m_avg_loop_cycle(0), m_mute_pref_cycle(0)
 {
     m_prefetch_started=false;
 
@@ -132,6 +132,8 @@ shader_core_ctx::shader_core_ctx( class gpgpu_sim *gpu,
     m_L1I = new read_only_cache( name,m_config->m_L1I_config,m_sid,get_shader_instruction_cache_id(),m_icnt,IN_L1I_MISS_QUEUE);
     
     m_warp.resize(m_config->max_warps_per_shader, shd_warp_t(this, warp_size));
+    //added by gh. metric control.
+    m_pref_time_stamps.resize(m_config->max_warps_per_shader);
     m_scoreboard = new Scoreboard(m_sid, m_config->max_warps_per_shader);
     
     //scedulers
@@ -320,8 +322,16 @@ void shader_core_ctx::reinit(unsigned start_thread, unsigned end_thread, bool re
       m_threadState[i].n_insn = 0;
       m_threadState[i].m_cta_id = -1;
    }
+   //added by gh. metric control
+   m_avg_data_cycle = 0;
+   m_avg_loop_cycle = 0;
+   m_mute_pref_cycle = 0;
+   m_ldst_unit->start_prefetch();
+
    for (unsigned i = start_thread / m_config->warp_size; i < end_thread / m_config->warp_size; ++i) {
       m_warp[i].reset();
+      //added by gh. metric control.
+      m_pref_time_stamps[i].init();
       m_simt_stack[i]->reset();
    }
 }
@@ -346,6 +356,8 @@ void shader_core_ctx::init_warps( unsigned cta_id, unsigned start_thread, unsign
             }
             m_simt_stack[i]->launch(start_pc,active_threads);
             m_warp[i].init(start_pc,cta_id,i,active_threads, m_dynamic_warp_id);
+            //added by gh. metric control.
+            m_pref_time_stamps[i].init();
             ++m_dynamic_warp_id;
             m_not_completed += n_active;
       }
@@ -696,13 +708,13 @@ void shader_core_ctx::func_exec_inst( warp_inst_t &inst )
             if(inst.is_marked())
             {
                 new_addr_type wl_idx_addr = inst.get_first_valid_addr();
-                for(unsigned i=0; i<32; i++)
-                    if(inst.active(i))
-                        assert(wl_idx_addr==inst.get_addr(i));
+                // for(unsigned i=0; i<32; i++)
+                //     if(inst.active(i))
+                //         assert(wl_idx_addr==inst.get_addr(i));
                 // unsigned long long data;
                 // get_gpu()->get_global_memory()->read(addr,8,&data);
 
-                printf("core %u get current worklist addr: 0x%x\n", m_sid, wl_idx_addr);
+                // printf("core %u get current worklist addr: 0x%x\n", m_sid, wl_idx_addr);
                 m_ldst_unit->get_prefetcher()->set_cur_wl_idx(wl_idx_addr,inst.warp_id(),wl_idx_addr);
             }
         }
@@ -897,6 +909,7 @@ void scheduler_unit::cycle()
                                 if(line==140){
                                     if(warp(warp_id).m_last_cycle_exec_loop!=0){
                                         m_stats->m_warp_exec_loop_cycles.push_back(gpu_sim_cycle+gpu_tot_sim_cycle-warp(warp_id).m_last_cycle_exec_loop);
+                                        m_shader->update_loop_cycle(gpu_sim_cycle+gpu_tot_sim_cycle-warp(warp_id).m_last_cycle_exec_loop);
                                     }
                                     warp(warp_id).m_last_cycle_exec_loop = gpu_sim_cycle + gpu_tot_sim_cycle;
                                 }
@@ -1430,11 +1443,16 @@ ldst_unit::process_prefetch_cache_access( cache_t* cache,
     if ( status == HIT ) {
         // assert( !read_sent );
         m_prefetcher->del_req_from_top(mf->get_marked_wid());// inst.accessq_pop_back();
-        new_addr_type block_addr = m_L1D->get_config().block_addr(mf->get_addr());
-        unsigned long long data[16];
-        for(unsigned i=0;i<16;i++)
-            m_core->read_data_from_memory(&data[i],block_addr+8*i);
-        m_prefetcher->prefetched_data(data,mf->get_addr(),mf->get_marked_wid(),mf->get_marked_addr());
+        //added by gh. metric control.
+        if(do_prefetch()){
+            new_addr_type block_addr = m_L1D->get_config().block_addr(mf->get_addr());
+            unsigned long long data[16];
+            for(unsigned i=0;i<16;i++)
+                m_core->read_data_from_memory(&data[i],block_addr+8*i);
+            m_prefetcher->prefetched_data(data,mf->get_addr(),mf->get_marked_wid(),mf->get_marked_addr());
+            //added by gh. metric control.
+            m_core->set_pref_end_cycle(mf->get_marked_wid(),gpu_sim_cycle+gpu_tot_sim_cycle);
+        }
         delete mf;
     } else if ( status == RESERVATION_FAIL ) {
         assert(mf->get_type()==READ_REQUEST);
@@ -1501,16 +1519,26 @@ mem_stage_stall_type ldst_unit::process_memory_access_queue( cache_t *cache, war
     }
     enum cache_request_status status = cache->access(mf->get_addr(),mf,gpu_sim_cycle+gpu_tot_sim_cycle,events);
     //added by gh. 
-    if(status != HIT && status != RESERVATION_FAIL){
-        if(inst.is_load() && m_core->is_prefetch_started()&&inst.is_marked())
-            m_prefetcher->new_load_addr(mf->get_addr(),inst.warp_id(),inst.get_first_valid_addr());
-    } else if(status == HIT){
-        if(inst.is_load() && m_core->is_prefetch_started()&&inst.is_marked()){
-            new_addr_type block_addr = m_L1D->get_config().block_addr(mf->get_addr());
-            unsigned long long data[16];
-            for(unsigned i=0;i<16;i++)
-                m_core->read_data_from_memory(&data[i],block_addr+8*i);
-            m_prefetcher->new_load_addr_2(mf->get_addr(),inst.warp_id(),inst.get_first_valid_addr(),data);
+    //metric control
+    if(do_prefetch()){
+        // if(status != HIT && status != RESERVATION_FAIL){
+        //     if(inst.is_load() && m_core->is_prefetch_started()&&inst.is_marked())
+        //         m_prefetcher->new_load_addr(mf->get_addr(),inst.warp_id(),inst.get_first_valid_addr());
+        // } else if(status == HIT){
+        if(status==HIT) {
+            if(inst.is_load() && m_core->is_prefetch_started()&&inst.is_marked()){
+                new_addr_type block_addr = m_L1D->get_config().block_addr(mf->get_addr());
+                unsigned long long data[16];
+                for(unsigned i=0;i<16;i++)
+                    m_core->read_data_from_memory(&data[i],block_addr+8*i);
+                if(m_prefetcher->new_load_addr(mf->get_addr(),inst.warp_id(),inst.get_first_valid_addr()))
+                {
+                    unsigned long long delay = m_core->get_pref_delay(inst.warp_id());
+                    if(delay)   m_core->update_data_cycle(delay);
+                    m_core->m_pref_time_stamps[inst.warp_id()].init();
+                    m_core->set_pref_start_cycle(inst.warp_id(),gpu_sim_cycle+gpu_tot_sim_cycle);
+                }
+            }
         }
     }
     return process_cache_access( cache, mf->get_addr(), inst, events, mf, status );
@@ -1826,6 +1854,8 @@ ldst_unit::ldst_unit( mem_fetch_interface *icnt,
                               m_mf_allocator,
                               IN_L1D_MISS_QUEUE );
     }
+
+    m_do_prefetch = true;
     m_prefetcher = new Prefetch_Unit(m_core->get_num_warp(),m_core->get_num_sched());
 }
 
@@ -2019,43 +2049,49 @@ void ldst_unit::cycle()
 
    if( !m_response_fifo.empty() ) {
        //added by gh. prior response.
-       std::list<mem_fetch*>::iterator iter = prior_response();
-       mem_fetch *mf = *iter;
+    //    std::list<mem_fetch*>::iterator iter = prior_response();
+    //    mem_fetch *mf = *iter;
+       mem_fetch *mf = m_response_fifo.front();
        //added by gh
        if(mf->is_prefetched()){
             //#ifndef BYPASS 
             if(m_L1D->fill_port_free())
             // #endif
             {
-                new_addr_type block_addr = m_L1D->get_config().block_addr(mf->get_addr());
-                unsigned long long data[16];
-                for(unsigned i=0;i<16;i++)
-                    m_core->read_data_from_memory(&data[i],block_addr+8*i);
-                m_prefetcher->prefetched_data(data,mf->get_addr(),mf->get_marked_wid(),mf->get_marked_addr());
+                //added by gh. metric control.
+                if(do_prefetch()){
+                    new_addr_type block_addr = m_L1D->get_config().block_addr(mf->get_addr());
+                    unsigned long long data[16];
+                    for(unsigned i=0;i<16;i++)
+                        m_core->read_data_from_memory(&data[i],block_addr+8*i);
+                    m_prefetcher->prefetched_data(data,mf->get_addr(),mf->get_marked_wid(),mf->get_marked_addr());
+                    //理想情况下，如果考虑m_response_fifo forward，结束时间应该按照送入response_fifo的时间算。
+                    m_core->set_pref_end_cycle(mf->get_marked_wid(),gpu_sim_cycle+gpu_tot_sim_cycle);
+                }
                 m_L1D->fill(mf,gpu_sim_cycle+gpu_tot_sim_cycle);
                 m_response_fifo.pop_front();
             }
        } else if (mf->istexture()) {
            if (m_L1T->fill_port_free()) {
                m_L1T->fill(mf,gpu_sim_cycle+gpu_tot_sim_cycle);
-            //    m_response_fifo.pop_front(); 
+               m_response_fifo.pop_front(); 
             //added by gh. prior response.
-               m_response_fifo.erase(iter);
+            //    m_response_fifo.erase(iter);
            }
        } else if (mf->isconst())  {
            if (m_L1C->fill_port_free()) {
                mf->set_status(IN_SHADER_FETCHED,gpu_sim_cycle+gpu_tot_sim_cycle);
                m_L1C->fill(mf,gpu_sim_cycle+gpu_tot_sim_cycle);
-            //    m_response_fifo.pop_front(); 
+               m_response_fifo.pop_front(); 
             //added by gh. prior response.
-               m_response_fifo.erase(iter);
+            //    m_response_fifo.erase(iter);
            }
        } else {
     	   if( mf->get_type() == WRITE_ACK || ( m_config->gpgpu_perfect_mem && mf->get_is_write() )) {
                m_core->store_ack(mf);
-            //    m_response_fifo.pop_front();
+               m_response_fifo.pop_front();
             //added by gh. prior response.
-               m_response_fifo.erase(iter);
+            //    m_response_fifo.erase(iter);
                delete mf;
            } else {
                assert( !mf->get_is_write() ); // L1 cache is write evict, allocate line on load miss only
@@ -2070,17 +2106,34 @@ void ldst_unit::cycle()
                if( bypassL1D ) {
                    if ( m_next_global == NULL ) {
                        mf->set_status(IN_SHADER_FETCHED,gpu_sim_cycle+gpu_tot_sim_cycle);
-                    //    m_response_fifo.pop_front();
+                       m_response_fifo.pop_front();
                     //added by gh. prior response.
-                       m_response_fifo.erase(iter);
+                    //    m_response_fifo.erase(iter);
                        m_next_global = mf;
                    }
                } else {
                    if (m_L1D->fill_port_free()) {
                        m_L1D->fill(mf,gpu_sim_cycle+gpu_tot_sim_cycle);
-                    //    m_response_fifo.pop_front();
+
+                       //added by gh. prefetch next wl index.
+                       warp_inst_t* inst = mf->get_the_inst();
+                       if(inst->is_load() && m_core->is_prefetch_started()&&inst->is_marked()){
+                            new_addr_type block_addr = m_L1D->get_config().block_addr(mf->get_addr());
+                            unsigned long long data[16];
+                            for(unsigned i=0;i<16;i++)
+                                m_core->read_data_from_memory(&data[i],block_addr+8*i);
+                            // m_prefetcher->new_load_addr(mf->get_addr(),inst.warp_id(),inst.get_first_valid_addr());
+                            if(m_prefetcher->new_load_addr(mf->get_addr(),inst->warp_id(),inst->get_first_valid_addr()))
+                            {
+                                unsigned long long delay = m_core->get_pref_delay(inst->warp_id());
+                                if(delay)   m_core->update_data_cycle(delay);
+                                m_core->m_pref_time_stamps[inst->warp_id()].init();
+                                m_core->set_pref_start_cycle(inst->warp_id(),gpu_sim_cycle+gpu_tot_sim_cycle);
+                            }
+                        }
+                       m_response_fifo.pop_front();
                     //added by gh. prior response.
-                       m_response_fifo.erase(iter);
+                    //    m_response_fifo.erase(iter);
                    }
                }
            }
@@ -2849,6 +2902,8 @@ void shader_core_ctx::adjust_cache_blk()
 void shader_core_ctx::cycle()
 {
     m_sample_cycles++;
+
+    change_pref_setting();
     
 	m_stats->shader_cycles[m_sid]++;
     writeback();

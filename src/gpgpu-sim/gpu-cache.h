@@ -1328,7 +1328,7 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
     void set_cur_wl_idx(new_addr_type addr, unsigned wid, new_addr_type marked_addr) {
         assert((addr-m_bound_regs[0])%8==0);
         unsigned long long cur_wl_idx = (addr-m_bound_regs[0])/8;
-        printf("add wid2cur_wl mapping. addr:0x%x, current wl index:%llu\n",addr,cur_wl_idx);
+        // printf("add wid2cur_wl mapping. addr:0x%x, current wl index:%llu\n",addr,cur_wl_idx);
         m_stat_wl_load++;
         if(m_req_q.find(wid)==m_req_q.end())
         {
@@ -1336,10 +1336,11 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
             req.clear();
             m_req_q.insert(std::map<unsigned, std::list<mem_access_t*> >::value_type(wid,req));
         }
-        if(is_prefetching(addr,wid)){
-            m_stat_not_finished++;
-            m_req_q[wid].clear();
-        }
+
+        // if(is_prefetching(addr,wid)){
+        //     m_stat_not_finished++;
+        //     m_req_q[wid].clear();
+        // }
         it_wid it = wid2cur_wl.find(wid);
         if(it!=wid2cur_wl.end()){
             it_addr it2 = it->second.find(marked_addr);
@@ -1358,12 +1359,13 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
         return addr>=m_bound_regs[6]&&addr<m_bound_regs[7];
     }
 
-    void new_load_addr(new_addr_type addr, unsigned wid, new_addr_type marked_addr)
+    bool new_load_addr(new_addr_type addr, unsigned wid, new_addr_type marked_addr)
     {
         it_wid it = wid2cur_wl.find(wid);
         assert(it!=wid2cur_wl.end());
         it_addr it2 = it->second.find(marked_addr);
 
+        bool gen_pref = false;
         // if(!is_full()){
         List_Type type = addr_filter(addr);
         if(type==WORK_LIST && it!=wid2cur_wl.end() && it2!=it->second.end()){
@@ -1389,11 +1391,13 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
                 }
                 printf("current wl index:%llu, next_wl_index_addr:0x%x\n", cur_wl, next_addr);
                 gen_prefetch_worklist(next_addr, wid, marked_addr);
+                gen_pref = true;
             } 
             wid2cur_wl[wid].erase(it2);
             if(wid2cur_wl[wid].size()==0)
                 wid2cur_wl.erase(it);
         } 
+        return gen_pref;
     }
 
     void new_load_addr_2(new_addr_type addr, unsigned wid, new_addr_type marked_addr, unsigned long long* pre_data)
@@ -1599,13 +1603,6 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
                 }
 
                 if(wid2el_idx[wid][marked_addr][0]!=-1&&wid2el_idx[wid][marked_addr][1]!=-1){
-                    // el_idx = wid2el_idx[wid][0];
-                    // // el_tail = inst2el_idx[inst][1];
-                    // if(el_idx>wid2el_idx[wid][1]){
-                    //     wid2el_idx[wid][0] = wid2el_idx[wid][1];
-                    //     wid2el_idx[wid][1] = el_idx;
-                    //     // gen_prefetch_edgelist_on_vertex(el_tail,el_head,inst);
-                    // }
                     wid2num_vl_prefetched[wid].erase(wid2num_vl_prefetched[wid].find(marked_addr));
                     if(wid2num_vl_prefetched[wid].size()==0){
                         wid2num_vl_prefetched.erase(wid2num_vl_prefetched.find(wid));
