@@ -1259,7 +1259,7 @@ enum Prefetch_Mode{
     LARGE_NODE
 };
 #define ADDRALIGN 0xffffff80;
-#define MAX_LINE 2 
+#define MAX_LINE 2
 #define ALIGN_32 0xffffffe0;
 #define STEP 1
 class Prefetch_Unit{
@@ -1359,12 +1359,29 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
         return addr>=m_bound_regs[6]&&addr<m_bound_regs[7];
     }
 
-    bool new_load_addr(new_addr_type addr, unsigned wid, new_addr_type marked_addr)
+    void new_load(new_addr_type addr, unsigned wid, unsigned long long cycle)
+    {
+        if(wid==0){
+            FILE* f = fopen("prefetch.log","a");
+            List_Type type = addr_filter(addr);
+            if(type==VERTEX_LIST){
+                unsigned idx = (addr-m_bound_regs[2])/8;
+                fprintf(f,"cycle(%llu), load vertex list. vertex_id(%u)\n",cycle, idx);
+            }
+            else if(type==EDGE_LIST){
+                unsigned idx = (addr-m_bound_regs[4])/8;
+                fprintf(f,"cycle(%llu), load edge list. edge_id(%u)\n",cycle,idx);
+            }
+            fclose(f);
+        }
+    }
+
+    bool new_load_addr(new_addr_type addr, unsigned wid, new_addr_type marked_addr, unsigned long long cycle)
     {
         it_wid it = wid2cur_wl.find(wid);
         assert(it!=wid2cur_wl.end());
         it_addr it2 = it->second.find(marked_addr);
-
+        // FILE* f = fopen("prefetch.log","a");
         bool gen_pref = false;
         // if(!is_full()){
         List_Type type = addr_filter(addr);
@@ -1390,6 +1407,10 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
                     }
                 }
                 printf("current wl index:%llu, next_wl_index_addr:0x%x\n", cur_wl, next_addr);
+
+                // if(wid==0)
+                //     fprintf(f,"cycle(%llu), new prefetch. wid=%u, new_wl_index(%u)\n",cycle, wid,cur_wl);
+                
                 gen_prefetch_worklist(next_addr, wid, marked_addr);
                 gen_pref = true;
             } 
@@ -1397,6 +1418,7 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
             if(wid2cur_wl[wid].size()==0)
                 wid2cur_wl.erase(it);
         } 
+        // fclose(f);
         return gen_pref;
     }
 
@@ -1471,12 +1493,12 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
                 }
             }
             else {
-                new_load_addr(addr, wid, marked_addr);
+                new_load_addr(addr, wid, marked_addr,0);
             }
         }
     }
 
-    void prefetched_data(unsigned long long* pre_data, new_addr_type addr, unsigned wid, new_addr_type marked_addr){
+    void prefetched_data(unsigned long long* pre_data, new_addr_type addr, unsigned wid, new_addr_type marked_addr, unsigned long long cycle){
         List_Type type = addr_filter(addr);
         new_addr_type el_head_addr, el_tail_addr;
         new_addr_type vid_addr, next_vid_addr, el_addr,prefetch_vl_addr;
@@ -1497,6 +1519,11 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
         addr2u tmp;
         addr2vec tmp1;
 
+        new_addr_type start_addr, end_addr;
+        unsigned start_idx;
+
+        // FILE* f = fopen("prefetch.log","a");
+
 
         switch(type){
             case WORK_LIST:
@@ -1511,7 +1538,8 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
                     wid2next_wl.erase(next_wl_it);
 
                 prefetched_vid = pre_data[prefetched_next_wl_idx%16];//假设worklist是128B对齐的并且每个item是8B,那么cacheline的offset就是模16
-
+                // if(wid==0)
+                //     fprintf(f,"cycle(%llu), prefetched worklist. wl_index(%u), vertex_id(%u)\n",cycle, prefetched_next_wl_idx,prefetched_vid);
                 vid_it = wid2vid.find(wid);
                 if(vid_it==wid2vid.end()){
                     tmp2[marked_addr]=prefetched_vid;
@@ -1603,6 +1631,8 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
                 }
 
                 if(wid2el_idx[wid][marked_addr][0]!=-1&&wid2el_idx[wid][marked_addr][1]!=-1){
+                    // if(wid==0)
+                    //     fprintf(f,"cycle(%llu), prefetched vertex list. vertex_id(%u), edge_start_index(%u), edge_end_index(%u)\n",cycle, m_prefetched_vid,wid2el_idx[wid][marked_addr][0],wid2el_idx[wid][marked_addr][1]);
                     wid2num_vl_prefetched[wid].erase(wid2num_vl_prefetched[wid].find(marked_addr));
                     if(wid2num_vl_prefetched[wid].size()==0){
                         wid2num_vl_prefetched.erase(wid2num_vl_prefetched.find(wid));
@@ -1616,16 +1646,35 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
                 }
             break;
             case EDGE_LIST:
-                el_addr = addr;
                 assert(wid2el_idx.find(wid)!=wid2el_idx.end());
                 assert(wid2el_idx[wid].find(marked_addr)!=wid2el_idx[wid].end());
-                for(unsigned i=0; i<16; i++){
-                    if(el_addr+i*8<m_bound_regs[6]+8*wid2el_idx[wid][marked_addr][1])
+
+                start_addr = m_bound_regs[4]+8*wid2el_idx[wid][marked_addr][0];
+                end_addr = m_bound_regs[4]+8*wid2el_idx[wid][marked_addr][1];
+                start_idx = 0;
+
+                if(addr>start_addr)
+                    el_addr = addr;
+                else{
+                    el_addr = start_addr&ADDRALIGN;
+                    start_idx = wid2el_idx[wid][marked_addr][0]%16;
+                }
+                
+                // if(wid==0)
+                //     fprintf(f,"cycle(%llu), prefetched edge list.\t",cycle);
+
+                for(unsigned i=start_idx; i<16; i++){
+                    if(el_addr+i*8<m_bound_regs[4]+8*wid2el_idx[wid][marked_addr][1])
                     {
+                        // if(wid==0)
+                        //     fprintf(f,"%u\t",pre_data[i]);
                         prefetch_vl_addr = m_bound_regs[6] + pre_data[i]*4;
+                        prefetch_vl_addr &= ADDRALIGN;
                         gen_prefetch_visitedlist(prefetch_vl_addr,wid,marked_addr);
                     }
                 }
+                // if(wid==0)
+                //     fprintf(f,"\n");
                 assert(wid2num_el_prefetched.find(wid)!=wid2num_el_prefetched.end());
                 assert(wid2num_el_prefetched[wid].find(marked_addr)!=wid2num_el_prefetched[wid].end());
                 wid2num_el_prefetched[wid][marked_addr]--;
@@ -1646,6 +1695,7 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
             default:    
             break;
         }
+        // fclose(f);
     }
 
     List_Type addr_filter(new_addr_type addr)
@@ -1713,6 +1763,7 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
         else length /=128;
 
         unsigned max_lines = (length>MAX_LINE)?MAX_LINE:length;
+        // unsigned max_lines = MAX_LINE;
 
 
         it_wid_u num_el_prefetch_it = wid2num_el_prefetched.find(wid);
@@ -1730,6 +1781,7 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
             new_addr_type next_addr = m_bound_regs[4] + start_offset*8 + 128*i;
             if(next_addr >= m_bound_regs[5] || next_addr < m_bound_regs[4])
                 break;
+            next_addr &= ADDRALIGN;
             mem_access_t* access = new mem_access_t(GLOBAL_ACC_R, next_addr, 128, false, wid,marked_addr);
             m_req_q[wid].push_back(access);
         }
@@ -1805,19 +1857,32 @@ typedef std::map<new_addr_type, unsigned>::iterator it_addr_u;
     bool queue_empty(unsigned wid) {return !m_req_q[wid].size();}
 
     //multi-q. round-robin.
-    unsigned find_queue(unsigned wid)
+    unsigned find_queue(unsigned wid, std::vector<int> next_cycle_wid)
     {
         unsigned res = -1;
-
-        for(unsigned i=wid, cnt=0; cnt<m_num_warp; cnt++ ,i+=m_num_sched)
-        {
-            if(i>=m_num_warp)
-                i %= m_num_warp;
-            if(m_req_q.find(i)!=m_req_q.end() && !queue_empty(i)){
-                res = i;
-                break;
+        
+        if(m_req_q.find(wid)!=m_req_q.end()&&!queue_empty(wid))
+            res = wid;
+        else{
+            for(unsigned i=1; i<next_cycle_wid.size(); i++)
+            {
+                unsigned warp_id = next_cycle_wid[i];
+                if(m_req_q.find(warp_id)!=m_req_q.end() && !queue_empty(warp_id)){
+                    res = warp_id;
+                    break;
+                }
             }
         }
+
+        // for(unsigned i=wid, cnt=0; cnt<m_num_warp; cnt++ ,i+=m_num_sched)
+        // {
+        //     if(i>=m_num_warp)
+        //         i %= m_num_warp;
+        //     if(m_req_q.find(i)!=m_req_q.end() && !queue_empty(i)){
+        //         res = i;
+        //         break;
+        //     }
+        // }
         return res;
     }
     Bound_Reg m_bound_regs[10];

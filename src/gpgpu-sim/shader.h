@@ -384,6 +384,17 @@ public:
         }
     }
 
+    std::vector<int> get_next_cycle_wid() {
+        std::vector<int> wids;
+        wids.clear();
+        for(unsigned i=0;i<m_next_cycle_prioritized_warps.size();i++){
+            unsigned wid = m_next_cycle_prioritized_warps[i]->get_warp_id();
+            if(wid!=-1)
+                wids.push_back(wid);
+        }
+        return wids;
+    }
+
 protected:
     virtual void do_on_warp_issued( unsigned warp_id,
                                     unsigned num_issued,
@@ -1153,7 +1164,7 @@ public:
     }
 
     mem_stage_stall_type process_prefetch_cache_access(cache_t* cache, new_addr_type address, std::list<cache_event>& events, mem_fetch* mf, cache_request_status status);
-    mem_stage_stall_type process_prefetch_queue( cache_t *cache, unsigned wid);
+    mem_stage_stall_type process_prefetch_queue( cache_t *cache, unsigned wid, std::vector<int> next_cycle_wid);
 
     void change2big_blksz(unsigned blksz){return;}
     void change2small_blksz(unsigned blksz){return;}
@@ -1632,8 +1643,9 @@ private:
 #define SAMPLE_REQ  1000
 #define SAMPLE_INSTRUCTION 10000
 
-#define ALPHA 8
-#define BETA 8
+#define ALPHA 16
+#define BETA 4
+#define MUTE_CYCLE 10000
 class shader_core_ctx : public core_t {
 public:
     // creator:
@@ -1661,7 +1673,7 @@ public:
 
     void change_pref_setting()
     {
-        if(m_mute_pref_cycle==10000){
+        if(m_mute_pref_cycle==MUTE_CYCLE){
             m_ldst_unit->start_prefetch();
             m_avg_data_cycle = 0;
             m_mute_pref_cycle = 0;
@@ -1677,12 +1689,22 @@ public:
     }
     void update_loop_cycle(unsigned long long cycle)
     {
+        if(m_avg_loop_cycle==0)
+        {
+            m_avg_loop_cycle = cycle;
+            return;
+        }
         unsigned long long tmp = cycle + (ALPHA-1)*m_avg_loop_cycle;
         m_avg_loop_cycle = tmp/ALPHA;
     }
 
     void update_data_cycle(unsigned long long cycle)
     {
+        if(m_avg_data_cycle == 0)
+        {
+            m_avg_data_cycle = cycle;
+            return;
+        }
         unsigned long long tmp = cycle + (BETA-1)*m_avg_data_cycle;
         m_avg_data_cycle = tmp/BETA;
     }

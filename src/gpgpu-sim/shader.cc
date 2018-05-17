@@ -1449,7 +1449,7 @@ ldst_unit::process_prefetch_cache_access( cache_t* cache,
             unsigned long long data[16];
             for(unsigned i=0;i<16;i++)
                 m_core->read_data_from_memory(&data[i],block_addr+8*i);
-            m_prefetcher->prefetched_data(data,mf->get_addr(),mf->get_marked_wid(),mf->get_marked_addr());
+            m_prefetcher->prefetched_data(data,mf->get_addr(),mf->get_marked_wid(),mf->get_marked_addr(),gpu_sim_cycle+gpu_tot_sim_cycle);
             //added by gh. metric control.
             m_core->set_pref_end_cycle(mf->get_marked_wid(),gpu_sim_cycle+gpu_tot_sim_cycle);
         }
@@ -1478,14 +1478,14 @@ ldst_unit::process_prefetch_cache_access( cache_t* cache,
     return result;
 }
 //added by gh. multi-q
-mem_stage_stall_type ldst_unit::process_prefetch_queue( cache_t *cache, unsigned wid )
+mem_stage_stall_type ldst_unit::process_prefetch_queue( cache_t *cache, unsigned wid, std::vector<int> next_cycle_wid )
 {
     mem_stage_stall_type result = NO_RC_FAIL;
     // added by gh
     // if( m_prefetcher->queue_empty(wid) )
     //     return result;
 
-    unsigned warpid = m_prefetcher->find_queue(wid);
+    unsigned warpid = m_prefetcher->find_queue(wid,next_cycle_wid);
     if(warpid==-1)
         return result;
 
@@ -1531,13 +1531,15 @@ mem_stage_stall_type ldst_unit::process_memory_access_queue( cache_t *cache, war
                 unsigned long long data[16];
                 for(unsigned i=0;i<16;i++)
                     m_core->read_data_from_memory(&data[i],block_addr+8*i);
-                if(m_prefetcher->new_load_addr(mf->get_addr(),inst.warp_id(),inst.get_first_valid_addr()))
+                if(m_prefetcher->new_load_addr(mf->get_addr(),inst.warp_id(),inst.get_first_valid_addr(),gpu_sim_cycle+gpu_tot_sim_cycle))
                 {
                     unsigned long long delay = m_core->get_pref_delay(inst.warp_id());
                     if(delay)   m_core->update_data_cycle(delay);
                     m_core->m_pref_time_stamps[inst.warp_id()].init();
                     m_core->set_pref_start_cycle(inst.warp_id(),gpu_sim_cycle+gpu_tot_sim_cycle);
                 }
+                // if(inst.warp_id()==0)
+                //     m_prefetcher->new_load(inst.get_first_valid_addr(),inst.warp_id(),gpu_sim_cycle+gpu_tot_sim_cycle);
             }
         }
     }
@@ -1585,7 +1587,7 @@ bool ldst_unit::memory_cycle( warp_inst_t &inst, mem_stage_stall_type &stall_rea
             for(unsigned i=0; i<2; i++){
                 unsigned wid = m_core->get_sched(i)->get_last_issued_wid();
                 if(wid!=-1)
-                    process_prefetch_queue(m_L1D,wid);
+                    process_prefetch_queue(m_L1D,wid,m_core->get_sched(i)->get_next_cycle_wid());
             }
             return true;
         }
@@ -1595,7 +1597,7 @@ bool ldst_unit::memory_cycle( warp_inst_t &inst, mem_stage_stall_type &stall_rea
        for(unsigned i=0; i<2; i++){
             unsigned wid = m_core->get_sched(i)->get_last_issued_wid();
             if(wid!=-1)
-                process_prefetch_queue(m_L1D,wid);
+                process_prefetch_queue(m_L1D,wid,m_core->get_sched(i)->get_next_cycle_wid());
         }
        return true;
    }
@@ -2064,7 +2066,7 @@ void ldst_unit::cycle()
                     unsigned long long data[16];
                     for(unsigned i=0;i<16;i++)
                         m_core->read_data_from_memory(&data[i],block_addr+8*i);
-                    m_prefetcher->prefetched_data(data,mf->get_addr(),mf->get_marked_wid(),mf->get_marked_addr());
+                    m_prefetcher->prefetched_data(data,mf->get_addr(),mf->get_marked_wid(),mf->get_marked_addr(),gpu_sim_cycle+gpu_tot_sim_cycle);
                     //理想情况下，如果考虑m_response_fifo forward，结束时间应该按照送入response_fifo的时间算。
                     m_core->set_pref_end_cycle(mf->get_marked_wid(),gpu_sim_cycle+gpu_tot_sim_cycle);
                 }
@@ -2123,7 +2125,7 @@ void ldst_unit::cycle()
                             for(unsigned i=0;i<16;i++)
                                 m_core->read_data_from_memory(&data[i],block_addr+8*i);
                             // m_prefetcher->new_load_addr(mf->get_addr(),inst.warp_id(),inst.get_first_valid_addr());
-                            if(m_prefetcher->new_load_addr(mf->get_addr(),inst->warp_id(),inst->get_first_valid_addr()))
+                            if(m_prefetcher->new_load_addr(mf->get_addr(),inst->warp_id(),inst->get_first_valid_addr(),gpu_sim_cycle+gpu_tot_sim_cycle))
                             {
                                 unsigned long long delay = m_core->get_pref_delay(inst->warp_id());
                                 if(delay)   m_core->update_data_cycle(delay);
@@ -2131,6 +2133,8 @@ void ldst_unit::cycle()
                                 m_core->set_pref_start_cycle(inst->warp_id(),gpu_sim_cycle+gpu_tot_sim_cycle);
                             }
                         }
+                        // if(inst->warp_id()==0)
+                        //     m_prefetcher->new_load(inst->get_first_valid_addr(),inst->warp_id(),gpu_sim_cycle+gpu_tot_sim_cycle);
                        m_response_fifo.pop_front();
                     //added by gh. prior response.
                     //    m_response_fifo.erase(iter);

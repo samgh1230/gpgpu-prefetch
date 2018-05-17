@@ -1149,7 +1149,7 @@ l1_cache::process_tag_probe( bool wr,
             access_status = (this->*m_wr_hit)( addr,
                                       cache_index,
                                       mf, time, events, probe_status );
-        }else {
+        }else if ( probe_status != RESERVATION_FAIL ) {
             access_status = (this->*m_wr_miss)( addr,
                                        cache_index,
                                        mf, time, events, probe_status );
@@ -1159,7 +1159,7 @@ l1_cache::process_tag_probe( bool wr,
             access_status = (this->*m_rd_hit)( addr,
                                       cache_index,
                                       mf, time, events, probe_status );
-        }else {
+        }else if ( probe_status != RESERVATION_FAIL ) {
             access_status = (this->*m_rd_miss)( addr,
                                        cache_index,
                                        mf, time, events, probe_status );
