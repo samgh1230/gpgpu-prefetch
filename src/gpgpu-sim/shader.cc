@@ -1859,6 +1859,7 @@ ldst_unit::ldst_unit( mem_fetch_interface *icnt,
 
     m_do_prefetch = true;
     m_prefetcher = new Prefetch_Unit(m_core->get_num_warp(),m_core->get_num_sched());
+    // m_prefetcher = new Stream_Prefetch_Unit(m_core->get_num_warp(),m_core->get_num_sched());
 }
 
 ldst_unit::ldst_unit( mem_fetch_interface *icnt,

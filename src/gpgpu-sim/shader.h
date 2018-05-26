@@ -1179,6 +1179,10 @@ public:
     void start_prefetch() {m_do_prefetch = true;}
     void stop_prefetch() {m_do_prefetch = false;}
     bool do_prefetch() {return m_do_prefetch;}
+    void reset_l1_prefetch_stat() {m_L1D->reset_prefetch_stat();}
+    void dec_prefetch_level() {m_prefetcher->dec_prefetch_level();}
+    void inc_prefetch_level() {m_prefetcher->inc_prefetch_level();}
+    bool weak_prefetch() {m_prefetcher->weak_prefetch();}
 
     Prefetch_Unit* get_prefetcher() {return m_prefetcher;}
     class shader_core_ctx *m_core;
@@ -1670,22 +1674,36 @@ public:
     }warp_pref_time_stamp;
 
     std::vector<warp_pref_time_stamp> m_pref_time_stamps;
-
+#define UTIL_THRESH 0.5
+#define NUM_PREF 1000
     void change_pref_setting()
     {
+        struct cache_sub_stats css;
+        get_L1D_sub_stats(css);
+        float util = 1.0f;
+        if(css.num_prefetched)
+            util = 1 - (float)css.num_unused_prefetched/css.num_prefetched;
+
         if(m_mute_pref_cycle==MUTE_CYCLE){
-            m_ldst_unit->start_prefetch();
-            m_avg_data_cycle = 0;
+            // m_ldst_unit->start_prefetch();
+            // m_avg_data_cycle = 0;
             m_mute_pref_cycle = 0;
+            m_ldst_unit->inc_prefetch_level();
             return;
         }
-        if(!m_ldst_unit->do_prefetch()) {
+        if(m_ldst_unit->weak_prefetch()) {
             m_mute_pref_cycle++;
-            return ;
+            // return ;
         }
-        if(m_avg_data_cycle>m_avg_loop_cycle)
-            m_ldst_unit->stop_prefetch();
+        // if(m_avg_data_cycle>m_avg_loop_cycle)
+        //     m_ldst_unit->stop_prefetch();
         // else m_ldst_unit->start_prefetch();
+        if(css.num_prefetched > NUM_PREF && util < UTIL_THRESH){ 
+            // m_ldst_unit->stop_prefetch();
+            m_ldst_unit->dec_prefetch_level();
+            m_ldst_unit->reset_l1_prefetch_stat();
+            m_mute_pref_cycle = 0;
+        }
     }
     void update_loop_cycle(unsigned long long cycle)
     {
@@ -1715,7 +1733,7 @@ public:
         if(m_pref_time_stamps[index].valid){
             // assert(m_pref_time_stamps[index].m_pref_wl_end);
             if(m_pref_time_stamps[index].m_pref_wl_end==0) {
-                m_ldst_unit->stop_prefetch();
+                // m_ldst_unit->stop_prefetch();
                 m_mute_pref_cycle ++;
             }
             return m_pref_time_stamps[index].m_pref_wl_end - m_pref_time_stamps[index].m_pref_wl_start;
